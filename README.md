@@ -15,6 +15,8 @@ Install the CLI into `GOBIN`:
 make install
 ```
 
+For release downloads and agent-tool setup, see [docs/install.md](docs/install.md).
+
 ## Configuration
 
 Run interactive setup on macOS:
@@ -54,21 +56,34 @@ service_resp_team_id: "2839232"
 default_template_id: "50925693"
 ```
 
-## Codex Skill
+## Agent Skill
 
-This repo includes a companion Codex skill at `skills/pco/SKILL.md`. The skill teaches agents how to use this CLI safely, including when to inspect Planning Center state before making mutations.
+This repo includes a companion agent skill at `.agents/skills/pco/SKILL.md`. The skill teaches AI agent tools how to use this CLI safely, including when to inspect Planning Center state before making mutations.
 
-Install or refresh the skill:
+Install or refresh for Codex:
 
 ```sh
-make install-skill
+make install-skill-codex
 ```
 
-By default, the installer symlinks `skills/pco` into `$CODEX_HOME/skills/pco`, or `~/.codex/skills/pco` when `CODEX_HOME` is unset. Because it is a symlink, pulling updates in this repo keeps the installed skill current.
+Install or refresh for Claude Code:
+
+```sh
+make install-skill-claude
+```
+
+Install the Cursor rule adapter into a project:
+
+```sh
+make install-cursor-rule CURSOR_PROJECT_DIR=/path/to/project
+```
+
+By default, the installer symlinks the skill/rule into the target tool. Because it is a symlink, pulling updates in this repo keeps the installed skill current.
 
 To install by copying instead of symlinking:
 
 ```sh
-scripts/install-skill.sh --copy
+scripts/install-skill.sh --tool codex --copy
+scripts/install-skill.sh --tool claude --copy
+scripts/install-skill.sh --tool cursor --copy --project-dir /path/to/project
 ```
-
