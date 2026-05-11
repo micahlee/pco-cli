@@ -11,7 +11,7 @@ Use the `pco` command for Planning Center operations. Prefer read commands first
 
 - Repo: `github.com/micahlee/pco-cli`
 - Local repo path is often `/Users/micahlee/projects/pco-cli`.
-- Install/update the skill from that repo with `make install-skill`.
+- Install/update the skill from that repo with `make install-skill-codex` or `make install-skill-claude`.
 - Build/test the CLI with `make build` and `make test`.
 - Credentials come from macOS Keychain via `pco init`, environment variables, or `~/.config/pco/config.yaml`.
 

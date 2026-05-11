@@ -1,0 +1,47 @@
+---
+description: Use the pco CLI for Planning Center workflows.
+globs:
+alwaysApply: false
+---
+
+# PCO CLI
+
+Use `pco` for Planning Center operations. Read current state before mutating it.
+
+Prefer read commands first:
+
+```sh
+pco me
+pco blockouts list
+pco plans list --count 10
+pco plans show <plan-id>
+pco plans items <plan-id>
+pco songs search --query "<title>"
+pco songs history --weeks 16
+pco teams show <plan-id>
+pco music team
+pco music availability <YYYY-MM-DD>
+pco music month <YYYY-MM>
+```
+
+Treat these as state-changing:
+
+```sh
+pco blockouts add <start-date> <end-date> --reason "<reason>"
+pco blockouts delete <id>
+pco plans create <YYYY-MM-DD> --template <template-id>
+pco songs set <plan-id> <item-id> <song-id>
+pco songs add <plan-id> <after-item-id> <song-id> --label "<label>"
+pco teams schedule <plan-id> <person-id> <team-id> "<position>"
+pco teams unschedule <plan-id> <assign-id>
+pco teams enable-signups <plan-id> --team-id <team-id>
+```
+
+Before mutating:
+
+- Confirm IDs, dates, and positions.
+- Check availability before scheduling.
+- Never invent person IDs, plan IDs, item IDs, song IDs, team IDs, or positions.
+- If the user did not explicitly request the exact mutation, propose the command and wait.
+
+After mutating, re-run the relevant read command and summarize what changed.
