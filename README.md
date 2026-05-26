@@ -9,6 +9,20 @@ make test
 make build
 ```
 
+## Plan Export
+
+Export a normalized Planning Center service plan document for comparison tools:
+
+```sh
+pco plans export <plan-id> --json
+```
+
+The export includes plan metadata, ordered items, item descriptions and HTML details, item notes, header context, song IDs/titles, arrangement IDs/names, and linked media IDs. Add `--include-raw` when troubleshooting Planning Center API behavior:
+
+```sh
+pco plans export <plan-id> --json --include-raw
+```
+
 Install the CLI into `GOBIN`:
 
 ```sh
