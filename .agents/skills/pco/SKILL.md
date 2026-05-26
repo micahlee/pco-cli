@@ -38,6 +38,7 @@ pco me
 pco blockouts list
 pco plans list --count 10
 pco plans show <plan-id>
+pco plans export <plan-id> --json
 pco plans items <plan-id>
 pco plans templates
 pco songs search --query "<title>"

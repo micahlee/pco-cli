@@ -48,6 +48,10 @@ var plansShowCmd = &cobra.Command{
 			return err
 		}
 
+		if jsonOutput {
+			return printer.JSON(plan)
+		}
+
 		// Plan header
 		title := plan.Attrs.Title
 		if title == "" {
@@ -88,6 +92,25 @@ var plansShowCmd = &cobra.Command{
 		}
 
 		return nil
+	},
+}
+
+var plansExportCmd = &cobra.Command{
+	Use:   "export <plan-id>",
+	Short: "Export a normalized service plan document for comparisons",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if !jsonOutput {
+			return fmt.Errorf("plans export currently supports JSON output only; rerun with --json")
+		}
+
+		includeRaw, _ := cmd.Flags().GetBool("include-raw")
+		export, err := svc.ExportPlan(cmd.Context(), args[0], includeRaw)
+		if err != nil {
+			return err
+		}
+
+		return printer.JSON(export)
 	},
 }
 
@@ -158,9 +181,11 @@ var plansCreateCmd = &cobra.Command{
 func init() {
 	plansListCmd.Flags().Int("count", 5, "number of plans to show")
 	plansCreateCmd.Flags().String("template", "", "template ID (defaults to Sunday Morning Worship)")
+	plansExportCmd.Flags().Bool("include-raw", false, "include raw JSON:API resources for troubleshooting")
 
 	plansCmd.AddCommand(plansListCmd)
 	plansCmd.AddCommand(plansShowCmd)
+	plansCmd.AddCommand(plansExportCmd)
 	plansCmd.AddCommand(plansItemsCmd)
 	plansCmd.AddCommand(plansTemplatesCmd)
 	plansCmd.AddCommand(plansCreateCmd)
