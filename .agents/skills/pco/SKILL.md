@@ -42,6 +42,7 @@ pco plans export <plan-id> --json
 pco plans items <plan-id>
 pco plans templates
 pco songs search --query "<title>"
+pco songs arrangements <song-id> --json
 pco songs history --weeks 16
 pco teams show <plan-id>
 pco music team

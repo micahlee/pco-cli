@@ -1,5 +1,7 @@
 package models
 
+import "encoding/json"
+
 // PlanAttrs holds the attributes of a PCO service plan.
 type PlanAttrs struct {
 	Title             string `json:"title"`
@@ -17,19 +19,19 @@ type Plan struct {
 
 // PlanItemAttrs holds the attributes of a plan item.
 type PlanItemAttrs struct {
-	Title                          string   `json:"title"`
-	Description                    string   `json:"description"`
-	HTMLDetails                    string   `json:"html_details"`
-	ItemType                       string   `json:"item_type"`
-	Sequence                       int      `json:"sequence"`
-	Length                         int      `json:"length"`
-	KeyName                        string   `json:"key_name"`
-	ServicePosition                string   `json:"service_position"`
-	CustomArrangementSequence      []string `json:"custom_arrangement_sequence"`
-	CustomArrangementSequenceFull  []string `json:"custom_arrangement_sequence_full"`
-	CustomArrangementSequenceShort []string `json:"custom_arrangement_sequence_short"`
-	CreatedAt                      string   `json:"created_at"`
-	UpdatedAt                      string   `json:"updated_at"`
+	Title                          string          `json:"title"`
+	Description                    string          `json:"description"`
+	HTMLDetails                    string          `json:"html_details"`
+	ItemType                       string          `json:"item_type"`
+	Sequence                       int             `json:"sequence"`
+	Length                         int             `json:"length"`
+	KeyName                        string          `json:"key_name"`
+	ServicePosition                string          `json:"service_position"`
+	CustomArrangementSequence      json.RawMessage `json:"custom_arrangement_sequence"`
+	CustomArrangementSequenceFull  json.RawMessage `json:"custom_arrangement_sequence_full"`
+	CustomArrangementSequenceShort json.RawMessage `json:"custom_arrangement_sequence_short"`
+	CreatedAt                      string          `json:"created_at"`
+	UpdatedAt                      string          `json:"updated_at"`
 }
 
 // PlanItem is a resolved plan item with ID and optional relationships.
@@ -71,9 +73,9 @@ type PlanExportItem struct {
 	ServicePosition                string                 `json:"service_position,omitempty"`
 	HeaderContext                  string                 `json:"header_context,omitempty"`
 	KeyName                        string                 `json:"key_name,omitempty"`
-	CustomArrangementSequence      []string               `json:"custom_arrangement_sequence,omitempty"`
-	CustomArrangementSequenceFull  []string               `json:"custom_arrangement_sequence_full,omitempty"`
-	CustomArrangementSequenceShort []string               `json:"custom_arrangement_sequence_short,omitempty"`
+	CustomArrangementSequence      json.RawMessage        `json:"custom_arrangement_sequence,omitempty"`
+	CustomArrangementSequenceFull  json.RawMessage        `json:"custom_arrangement_sequence_full,omitempty"`
+	CustomArrangementSequenceShort json.RawMessage        `json:"custom_arrangement_sequence_short,omitempty"`
 	Notes                          []PlanExportItemNote   `json:"notes,omitempty"`
 	Song                           *PlanExportSong        `json:"song,omitempty"`
 	Arrangement                    *PlanExportArrangement `json:"arrangement,omitempty"`
@@ -96,8 +98,12 @@ type PlanExportSong struct {
 
 // PlanExportArrangement is normalized arrangement metadata for a song item.
 type PlanExportArrangement struct {
-	ID   string `json:"id"`
-	Name string `json:"name,omitempty"`
+	ID            string   `json:"id"`
+	Name          string   `json:"name,omitempty"`
+	BPM           *float64 `json:"bpm,omitempty"`
+	Meter         string   `json:"meter,omitempty"`
+	Length        *int     `json:"length,omitempty"`
+	ChordChartKey string   `json:"chord_chart_key,omitempty"`
 }
 
 // PlanExportRaw contains raw JSON:API resources for troubleshooting.

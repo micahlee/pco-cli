@@ -285,6 +285,10 @@ func exportItem(
 		item.Arrangement = &models.PlanExportArrangement{ID: rid}
 		if arrangement, ok := included["Arrangement:"+rid]; ok {
 			item.Arrangement.Name = resourceAttrString(arrangement, "name")
+			item.Arrangement.BPM = resourceAttrFloat(arrangement, "bpm")
+			item.Arrangement.Meter = resourceAttrString(arrangement, "meter")
+			item.Arrangement.Length = resourceAttrInt(arrangement, "length")
+			item.Arrangement.ChordChartKey = resourceAttrString(arrangement, "chord_chart_key")
 		}
 	}
 
@@ -371,6 +375,38 @@ func resourceAttrString(resource models.Resource, name string) string {
 		return ""
 	}
 	return s
+}
+
+func resourceAttrFloat(resource models.Resource, name string) *float64 {
+	value := resourceAttr(resource, name)
+	if len(value) == 0 || string(value) == "null" {
+		return nil
+	}
+	var f float64
+	if err := json.Unmarshal(value, &f); err != nil {
+		return nil
+	}
+	return &f
+}
+
+func resourceAttrInt(resource models.Resource, name string) *int {
+	value := resourceAttr(resource, name)
+	if len(value) == 0 || string(value) == "null" {
+		return nil
+	}
+	var i int
+	if err := json.Unmarshal(value, &i); err != nil {
+		return nil
+	}
+	return &i
+}
+
+func resourceAttr(resource models.Resource, name string) json.RawMessage {
+	var attrs map[string]json.RawMessage
+	if err := json.Unmarshal(resource.Attributes, &attrs); err != nil {
+		return nil
+	}
+	return attrs[name]
 }
 
 // ListTemplates returns all plan templates.
