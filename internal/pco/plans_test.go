@@ -82,7 +82,7 @@ func TestExportPlanIncludesDetailsAndIncludedResources(t *testing.T) {
 					{
 						"type": "Arrangement",
 						"id": "arr-1",
-						"attributes": {"name": "Congregational"}
+						"attributes": {"name": "Congregational", "bpm": 136, "meter": "4/4", "length": 240, "chord_chart_key": "A"}
 					},
 					{
 						"type": "ItemNote",
@@ -137,12 +137,107 @@ func TestExportPlanIncludesDetailsAndIncludedResources(t *testing.T) {
 	if song.Arrangement == nil || song.Arrangement.ID != "arr-1" || song.Arrangement.Name != "Congregational" {
 		t.Fatalf("expected arrangement metadata, got %#v", song.Arrangement)
 	}
+	if song.Arrangement.BPM == nil || *song.Arrangement.BPM != 136 {
+		t.Fatalf("expected arrangement BPM 136, got %#v", song.Arrangement.BPM)
+	}
+	if song.Arrangement.Meter != "4/4" {
+		t.Fatalf("expected arrangement meter 4/4, got %q", song.Arrangement.Meter)
+	}
+	if song.Arrangement.Length == nil || *song.Arrangement.Length != 240 {
+		t.Fatalf("expected arrangement length 240, got %#v", song.Arrangement.Length)
+	}
+	if song.Arrangement.ChordChartKey != "A" {
+		t.Fatalf("expected arrangement chord chart key A, got %q", song.Arrangement.ChordChartKey)
+	}
 	if len(song.MediaIDs) != 1 || song.MediaIDs[0] != "media-1" {
 		t.Fatalf("expected media IDs, got %#v", song.MediaIDs)
 	}
 
 	if export.Raw == nil || export.Raw.Plan == nil || len(export.Raw.Items) != 3 || len(export.Raw.Included) != 3 {
 		t.Fatalf("expected raw JSON:API resources, got %#v", export.Raw)
+	}
+}
+
+func TestExportPlanIncludesSecondPageIncludedResources(t *testing.T) {
+	client := api.New("client", "secret")
+	client.HTTPClient = &fakeHTTPClient{
+		t: t,
+		responses: map[string]string{
+			"/services/v2/service_types/643436/plans/paged": `{
+				"data": {
+					"type": "Plan",
+					"id": "paged",
+					"attributes": {"title": "Paged Plan", "dates": "July 5, 2026"}
+				}
+			}`,
+			"/services/v2/service_types/643436/plans/paged/items?include=song%2Carrangement%2Citem_notes%2Cmedia&per_page=100": `{
+				"data": [
+					{
+						"type": "Item",
+						"id": "header-1",
+						"attributes": {"title": "Service", "item_type": "header", "sequence": 1}
+					}
+				],
+				"links": {
+					"next": "https://api.planningcenteronline.com/services/v2/service_types/643436/plans/paged/items?offset=100"
+				}
+			}`,
+			"/services/v2/service_types/643436/plans/paged/items?offset=100": `{
+				"data": [
+					{
+						"type": "Item",
+						"id": "song-2",
+						"attributes": {"title": "King Of Kings", "item_type": "song", "sequence": 2},
+						"relationships": {
+							"song": {"data": {"type": "Song", "id": "song-2"}},
+							"arrangement": {"data": {"type": "Arrangement", "id": "20319171"}}
+						}
+					}
+				],
+				"included": [
+					{
+						"type": "Song",
+						"id": "song-2",
+						"attributes": {"title": "King Of Kings"}
+					},
+					{
+						"type": "Arrangement",
+						"id": "20319171",
+						"attributes": {"name": "Default Arrangement", "bpm": 136, "meter": "4/4"}
+					},
+					{
+						"type": "ItemNote",
+						"id": "note-2",
+						"attributes": {"category_name": "Lead Person", "content": "Leader"},
+						"relationships": {"item": {"data": {"type": "Item", "id": "song-2"}}}
+					}
+				]
+			}`,
+		},
+	}
+
+	service := &Service{
+		Client: client,
+		Config: &config.Config{ServiceTypeID: "643436"},
+	}
+
+	export, err := service.ExportPlan(context.Background(), "paged", false)
+	if err != nil {
+		t.Fatalf("ExportPlan returned error: %v", err)
+	}
+
+	if len(export.Items) != 2 {
+		t.Fatalf("expected 2 items across pages, got %d", len(export.Items))
+	}
+	song := export.Items[1]
+	if song.Song == nil || song.Song.Title != "King Of Kings" {
+		t.Fatalf("expected page 2 song include, got %#v", song.Song)
+	}
+	if song.Arrangement == nil || song.Arrangement.BPM == nil || *song.Arrangement.BPM != 136 || song.Arrangement.Meter != "4/4" {
+		t.Fatalf("expected page 2 arrangement tempo, got %#v", song.Arrangement)
+	}
+	if len(song.Notes) != 1 || song.Notes[0].Content != "Leader" {
+		t.Fatalf("expected page 2 item note, got %#v", song.Notes)
 	}
 }
 
@@ -161,7 +256,14 @@ func (c *fakeHTTPClient) Do(req *http.Request) (*http.Response, error) {
 		}
 	}
 
-	body, ok := c.responses[req.URL.Path]
+	key := req.URL.Path
+	if req.URL.RawQuery != "" {
+		key += "?" + req.URL.RawQuery
+	}
+	body, ok := c.responses[key]
+	if !ok {
+		body, ok = c.responses[req.URL.Path]
+	}
 	if !ok {
 		c.t.Fatalf("unexpected request path: %s", req.URL.String())
 	}

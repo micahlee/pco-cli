@@ -60,6 +60,28 @@ func (s *Service) GetSong(ctx context.Context, songID string) (*models.Song, err
 	return &models.Song{ID: resource.ID, Attrs: attrs}, nil
 }
 
+// ListSongArrangements returns all arrangements for a song.
+func (s *Service) ListSongArrangements(ctx context.Context, songID string) ([]models.Arrangement, error) {
+	resources, err := s.Client.GetAll(ctx, "/services/v2/songs/"+songID+"/arrangements", url.Values{"per_page": {"100"}})
+	if err != nil {
+		return nil, err
+	}
+
+	arrangements := make([]models.Arrangement, len(resources))
+	for i, r := range resources {
+		var attrs models.ArrangementAttrs
+		if err := json.Unmarshal(r.Attributes, &attrs); err != nil {
+			return nil, err
+		}
+		arrangements[i] = models.Arrangement{
+			ID:       r.ID,
+			Attrs:    attrs,
+			Archived: attrs.ArchivedAt != "",
+		}
+	}
+	return arrangements, nil
+}
+
 // SongHistory returns usage data for active songs over the past N weeks.
 func (s *Service) SongHistory(ctx context.Context, weeks int) ([]models.SongUsage, int, error) {
 	cutoff := time.Now().AddDate(0, 0, -weeks*7)

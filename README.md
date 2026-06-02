@@ -23,6 +23,12 @@ The export includes plan metadata, ordered items, item descriptions and HTML det
 pco plans export <plan-id> --json --include-raw
 ```
 
+Inspect a song's arrangements, including tempo and meter for worship planning:
+
+```sh
+pco songs arrangements <song-id> --json
+```
+
 Install the CLI into `GOBIN`:
 
 ```sh

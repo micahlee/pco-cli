@@ -44,6 +44,18 @@ var songsHistoryCmd = &cobra.Command{
 			return err
 		}
 
+		if jsonOutput {
+			return printer.JSON(struct {
+				Weeks     int `json:"weeks"`
+				PlanCount int `json:"plan_count"`
+				Songs     any `json:"songs"`
+			}{
+				Weeks:     weeks,
+				PlanCount: planCount,
+				Songs:     usage,
+			})
+		}
+
 		fmt.Fprintf(printer.Writer(), "Song history — past %d weeks (active songs only, %d plans)\n\n", weeks, planCount)
 
 		headers := []string{"Song", "Uses", "Last Used", "All Dates"}
@@ -54,6 +66,39 @@ var songsHistoryCmd = &cobra.Command{
 				strconv.Itoa(len(u.Dates)),
 				u.Dates[0],
 				strings.Join(u.Dates, ", "),
+			}
+		}
+		printer.Table(headers, rows)
+		return nil
+	},
+}
+
+var songsArrangementsCmd = &cobra.Command{
+	Use:   "arrangements <song-id>",
+	Short: "List arrangements for a song with tempo and meter",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		arrangements, err := svc.ListSongArrangements(cmd.Context(), args[0])
+		if err != nil {
+			return err
+		}
+
+		if jsonOutput {
+			return printer.JSON(arrangements)
+		}
+
+		headers := []string{"ID", "Name", "BPM", "Meter", "Length", "Key", "Archived", "Updated"}
+		rows := make([][]string, len(arrangements))
+		for i, a := range arrangements {
+			rows[i] = []string{
+				a.ID,
+				a.Attrs.Name,
+				formatFloat(a.Attrs.BPM),
+				a.Attrs.Meter,
+				formatInt(a.Attrs.Length),
+				a.Attrs.ChordChartKey,
+				strconv.FormatBool(a.Archived),
+				a.Attrs.UpdatedAt,
 			}
 		}
 		printer.Table(headers, rows)
@@ -97,7 +142,22 @@ func init() {
 
 	songsCmd.AddCommand(songsSearchCmd)
 	songsCmd.AddCommand(songsHistoryCmd)
+	songsCmd.AddCommand(songsArrangementsCmd)
 	songsCmd.AddCommand(songsSetCmd)
 	songsCmd.AddCommand(songsAddCmd)
 	rootCmd.AddCommand(songsCmd)
+}
+
+func formatFloat(value *float64) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*value, 'f', -1, 64)
+}
+
+func formatInt(value *int) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.Itoa(*value)
 }
