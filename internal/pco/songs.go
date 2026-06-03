@@ -191,13 +191,15 @@ func (s *Service) SongHistory(ctx context.Context, weeks int) ([]models.SongUsag
 	result := make([]models.SongUsage, 0, len(usage))
 	for _, u := range usage {
 		sort.Sort(sort.Reverse(sort.StringSlice(u.Dates)))
+		u.Uses = len(u.Dates)
+		u.LastUsed = u.Dates[0]
 		result = append(result, *u)
 	}
 	sort.Slice(result, func(i, j int) bool {
-		if result[i].Dates[0] == result[j].Dates[0] {
-			return len(result[i].Dates) > len(result[j].Dates)
+		if result[i].LastUsed == result[j].LastUsed {
+			return result[i].Uses > result[j].Uses
 		}
-		return result[i].Dates[0] > result[j].Dates[0]
+		return result[i].LastUsed > result[j].LastUsed
 	})
 
 	return result, len(plans), nil
