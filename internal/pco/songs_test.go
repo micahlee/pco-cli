@@ -26,6 +26,15 @@ func TestListSongArrangementsIncludesTempoAndMeter(t *testing.T) {
 							"meter": "4/4",
 							"length": 278,
 							"chord_chart_key": "Bb",
+							"lyrics": "Verse lyrics\nChorus lyrics",
+							"lyrics_enabled": true,
+							"sequence": ["Verse 1", "Chorus 1"],
+							"sequence_full": [
+								{"label": "Verse", "number": "1"},
+								{"label": "Chorus", "number": "1"}
+							],
+							"sequence_short": ["V1", "C1"],
+							"notes": "Arrangement note",
 							"archived_at": null,
 							"updated_at": "2026-06-01T12:00:00Z"
 						}
@@ -59,6 +68,25 @@ func TestListSongArrangementsIncludesTempoAndMeter(t *testing.T) {
 	}
 	if arrangement.Attrs.ChordChartKey != "Bb" {
 		t.Fatalf("expected chord chart key Bb, got %q", arrangement.Attrs.ChordChartKey)
+	}
+	if arrangement.Attrs.Lyrics != "Verse lyrics\nChorus lyrics" {
+		t.Fatalf("expected lyrics, got %q", arrangement.Attrs.Lyrics)
+	}
+	if !arrangement.Attrs.LyricsEnabled {
+		t.Fatal("expected lyrics enabled")
+	}
+	if strings.Join(arrangement.Attrs.Sequence, ",") != "Verse 1,Chorus 1" {
+		t.Fatalf("expected sequence, got %#v", arrangement.Attrs.Sequence)
+	}
+	expectedSequenceFull := `[{"label":"Verse","number":"1"},{"label":"Chorus","number":"1"}]`
+	if compactJSON(arrangement.Attrs.SequenceFull) != expectedSequenceFull {
+		t.Fatalf("expected full sequence, got %s", arrangement.Attrs.SequenceFull)
+	}
+	if strings.Join(arrangement.Attrs.SequenceShort, ",") != "V1,C1" {
+		t.Fatalf("expected short sequence, got %#v", arrangement.Attrs.SequenceShort)
+	}
+	if arrangement.Attrs.Notes != "Arrangement note" {
+		t.Fatalf("expected notes, got %q", arrangement.Attrs.Notes)
 	}
 	if arrangement.Archived {
 		t.Fatal("expected active arrangement")

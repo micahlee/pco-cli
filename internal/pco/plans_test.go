@@ -1,7 +1,9 @@
 package pco
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -96,7 +98,22 @@ func TestExportPlanIncludesDetailsAndIncludedResources(t *testing.T) {
 					{
 						"type": "Arrangement",
 						"id": "arr-1",
-						"attributes": {"name": "Congregational", "bpm": 136, "meter": "4/4", "length": 240, "chord_chart_key": "A"}
+						"attributes": {
+							"name": "Congregational",
+							"bpm": 136,
+							"meter": "4/4",
+							"length": 240,
+							"chord_chart_key": "A",
+							"lyrics": "Verse 1 lyrics\nChorus lyrics",
+							"lyrics_enabled": true,
+							"sequence": ["Verse 1", "Chorus 1"],
+							"sequence_full": [
+								{"label": "Verse", "number": "1"},
+								{"label": "Chorus", "number": "1"}
+							],
+							"sequence_short": ["V1", "C1"],
+							"notes": "Arrangement note"
+						}
 					},
 					{
 						"type": "ItemNote",
@@ -168,6 +185,25 @@ func TestExportPlanIncludesDetailsAndIncludedResources(t *testing.T) {
 	}
 	if song.Arrangement.ChordChartKey != "A" {
 		t.Fatalf("expected arrangement chord chart key A, got %q", song.Arrangement.ChordChartKey)
+	}
+	if song.Arrangement.Lyrics != "Verse 1 lyrics\nChorus lyrics" {
+		t.Fatalf("expected arrangement lyrics, got %q", song.Arrangement.Lyrics)
+	}
+	if song.Arrangement.LyricsEnabled == nil || !*song.Arrangement.LyricsEnabled {
+		t.Fatalf("expected lyrics enabled, got %#v", song.Arrangement.LyricsEnabled)
+	}
+	if strings.Join(song.Arrangement.Sequence, ",") != "Verse 1,Chorus 1" {
+		t.Fatalf("expected arrangement sequence, got %#v", song.Arrangement.Sequence)
+	}
+	expectedSequenceFull := `[{"label":"Verse","number":"1"},{"label":"Chorus","number":"1"}]`
+	if compactJSON(song.Arrangement.SequenceFull) != expectedSequenceFull {
+		t.Fatalf("expected arrangement full sequence, got %s", song.Arrangement.SequenceFull)
+	}
+	if strings.Join(song.Arrangement.SequenceShort, ",") != "V1,C1" {
+		t.Fatalf("expected arrangement short sequence, got %#v", song.Arrangement.SequenceShort)
+	}
+	if song.Arrangement.Notes != "Arrangement note" {
+		t.Fatalf("expected arrangement notes, got %q", song.Arrangement.Notes)
 	}
 	if len(song.MediaIDs) != 1 || song.MediaIDs[0] != "media-1" {
 		t.Fatalf("expected media IDs, got %#v", song.MediaIDs)
@@ -315,6 +351,14 @@ func TestExportPlanIncludesPaginatedPlanNotes(t *testing.T) {
 	if export.Plan.PlanNoteDetails[0].Content != "First page" || export.Plan.PlanNoteDetails[1].Content != "Second page" {
 		t.Fatalf("expected paginated plan notes, got %#v", export.Plan.PlanNoteDetails)
 	}
+}
+
+func compactJSON(raw json.RawMessage) string {
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
+		return string(raw)
+	}
+	return buf.String()
 }
 
 type fakeHTTPClient struct {
