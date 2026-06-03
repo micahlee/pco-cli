@@ -121,6 +121,13 @@ var musicMonthCmd = &cobra.Command{
 			} else {
 				fmt.Fprintln(w, "  Band: (none scheduled)")
 			}
+			if plan.BandSignup != nil && plan.BandSignup.Attrs.SignupsEnabled != nil && *plan.BandSignup.Attrs.SignupsEnabled {
+				fmt.Fprintf(w, "  Band sign-ups: open (TeamSignup %s)\n", plan.BandSignup.ID)
+			} else if plan.BandSignup != nil {
+				fmt.Fprintf(w, "  Band sign-ups: closed (TeamSignup %s)\n", plan.BandSignup.ID)
+			} else {
+				fmt.Fprintln(w, "  Band sign-ups: closed/not enabled")
+			}
 
 			// Blocked
 			if len(plan.BlockedNames) > 0 {

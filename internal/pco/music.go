@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
-	"strconv"
 	"time"
 
 	"github.com/micahlee/pco-cli/internal/models"
@@ -89,42 +88,9 @@ func (s *Service) CheckAvailability(ctx context.Context, dateStr string) ([]mode
 
 // MusicMonth returns a full music scheduling overview for a month.
 func (s *Service) MusicMonth(ctx context.Context, yearMonth string) (*models.MusicMonth, error) {
-	year, _ := strconv.Atoi(yearMonth[:4])
-	month, _ := strconv.Atoi(yearMonth[5:7])
-
-	// Fetch future and recent past plans, filter to this month
-	futurePlans, err := s.Client.Get(ctx, s.servicePath()+"/plans",
-		url.Values{"filter": {"future"}, "per_page": {"25"}, "order": {"sort_date"}})
+	monthPlans, err := s.ListPlansForMonth(ctx, yearMonth)
 	if err != nil {
 		return nil, err
-	}
-	pastPlans, err := s.Client.Get(ctx, s.servicePath()+"/plans",
-		url.Values{"filter": {"past"}, "per_page": {"10"}, "order": {"-sort_date"}})
-	if err != nil {
-		return nil, err
-	}
-
-	futureResources, _, _ := models.ParseList(futurePlans)
-	pastResources, _, _ := models.ParseList(pastPlans)
-
-	// Reverse past so oldest first, then append future
-	for i, j := 0, len(pastResources)-1; i < j; i, j = i+1, j-1 {
-		pastResources[i], pastResources[j] = pastResources[j], pastResources[i]
-	}
-	allResources := append(pastResources, futureResources...)
-
-	var monthPlans []models.Resource
-	for _, r := range allResources {
-		var attrs models.PlanAttrs
-		json.Unmarshal(r.Attributes, &attrs)
-		dateStr := attrs.SortDate
-		if len(dateStr) < 10 {
-			continue
-		}
-		d, _ := time.Parse("2006-01-02", dateStr[:10])
-		if d.Year() == year && int(d.Month()) == month {
-			monthPlans = append(monthPlans, r)
-		}
 	}
 
 	if len(monthPlans) == 0 {
@@ -136,11 +102,6 @@ func (s *Service) MusicMonth(ctx context.Context, yearMonth string) (*models.Mus
 	if err != nil {
 		return nil, err
 	}
-	bandMap := make(map[string]string) // pid -> name
-	for _, m := range bandMembers {
-		bandMap[m.PersonID] = m.Name
-	}
-
 	blockoutsByPerson := make(map[string][]models.Blockout)
 	for _, m := range bandMembers {
 		bos, err := s.ListBlockoutsForPerson(ctx, m.PersonID)
@@ -155,8 +116,7 @@ func (s *Service) MusicMonth(ctx context.Context, yearMonth string) (*models.Mus
 	var resultPlans []models.MusicMonthPlan
 
 	for _, plan := range monthPlans {
-		var pattrs models.PlanAttrs
-		json.Unmarshal(plan.Attributes, &pattrs)
+		pattrs := plan.Attrs
 		dateStr := pattrs.SortDate[:10]
 		title := pattrs.Title
 		if title == "" {
@@ -168,10 +128,18 @@ func (s *Service) MusicMonth(ctx context.Context, yearMonth string) (*models.Mus
 			return nil, err
 		}
 
+		signups, err := s.ListTeamSignups(ctx, plan.ID, s.Config.BandTeamID)
+		if err != nil {
+			return nil, err
+		}
+
 		mp := models.MusicMonthPlan{
 			Date:   dateStr,
 			PlanID: plan.ID,
 			Title:  title,
+		}
+		if len(signups) > 0 {
+			mp.BandSignup = &signups[0]
 		}
 
 		for _, tm := range members {
@@ -228,4 +196,59 @@ func (s *Service) MusicMonth(ctx context.Context, yearMonth string) (*models.Mus
 		Plans:            resultPlans,
 		AppearanceCounts: counts,
 	}, nil
+}
+
+// ListPlansForMonth returns service plans in the requested YYYY-MM.
+func (s *Service) ListPlansForMonth(ctx context.Context, yearMonth string) ([]models.Plan, error) {
+	monthStart, err := time.Parse("2006-01", yearMonth)
+	if err != nil {
+		return nil, fmt.Errorf("invalid month %q: expected YYYY-MM", yearMonth)
+	}
+	year := monthStart.Year()
+	month := int(monthStart.Month())
+
+	// Fetch future and recent past plans, filter to this month
+	futurePlans, err := s.Client.Get(ctx, s.servicePath()+"/plans",
+		url.Values{"filter": {"future"}, "per_page": {"25"}, "order": {"sort_date"}})
+	if err != nil {
+		return nil, err
+	}
+	pastPlans, err := s.Client.Get(ctx, s.servicePath()+"/plans",
+		url.Values{"filter": {"past"}, "per_page": {"10"}, "order": {"-sort_date"}})
+	if err != nil {
+		return nil, err
+	}
+
+	futureResources, _, _ := models.ParseList(futurePlans)
+	pastResources, _, _ := models.ParseList(pastPlans)
+
+	// Reverse past so oldest first, then append future
+	for i, j := 0, len(pastResources)-1; i < j; i, j = i+1, j-1 {
+		pastResources[i], pastResources[j] = pastResources[j], pastResources[i]
+	}
+	allResources := append(pastResources, futureResources...)
+
+	var monthPlans []models.Resource
+	for _, r := range allResources {
+		var attrs models.PlanAttrs
+		json.Unmarshal(r.Attributes, &attrs)
+		dateStr := attrs.SortDate
+		if len(dateStr) < 10 {
+			continue
+		}
+		d, _ := time.Parse("2006-01-02", dateStr[:10])
+		if d.Year() == year && int(d.Month()) == month {
+			monthPlans = append(monthPlans, r)
+		}
+	}
+
+	plans := make([]models.Plan, 0, len(monthPlans))
+	for _, plan := range monthPlans {
+		var attrs models.PlanAttrs
+		if err := json.Unmarshal(plan.Attributes, &attrs); err != nil {
+			return nil, err
+		}
+		plans = append(plans, models.Plan{ID: plan.ID, Attrs: attrs})
+	}
+	return plans, nil
 }
