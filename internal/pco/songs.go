@@ -40,6 +40,46 @@ func (s *Service) SearchSongs(ctx context.Context, query string) ([]models.Song,
 	return songs, nil
 }
 
+// SearchSongsWithArrangements searches for songs and includes arrangement summaries.
+func (s *Service) SearchSongsWithArrangements(ctx context.Context, query string) ([]models.SongSearchResult, error) {
+	songs, err := s.SearchSongs(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]models.SongSearchResult, len(songs))
+	for i, song := range songs {
+		arrangements, err := s.ListSongArrangements(ctx, song.ID)
+		if err != nil {
+			return nil, err
+		}
+		results[i] = models.SongSearchResult{
+			ID:           song.ID,
+			Title:        song.Attrs.Title,
+			Author:       song.Attrs.Author,
+			Arrangements: arrangementSummaries(arrangements),
+		}
+	}
+	return results, nil
+}
+
+func arrangementSummaries(arrangements []models.Arrangement) []models.ArrangementSummary {
+	summaries := make([]models.ArrangementSummary, len(arrangements))
+	for i, arrangement := range arrangements {
+		summaries[i] = models.ArrangementSummary{
+			ID:            arrangement.ID,
+			Name:          arrangement.Attrs.Name,
+			BPM:           arrangement.Attrs.BPM,
+			Meter:         arrangement.Attrs.Meter,
+			Length:        arrangement.Attrs.Length,
+			ChordChartKey: arrangement.Attrs.ChordChartKey,
+			Archived:      arrangement.Archived,
+			UpdatedAt:     arrangement.Attrs.UpdatedAt,
+		}
+	}
+	return summaries
+}
+
 // GetSong returns a single song by ID.
 func (s *Service) GetSong(ctx context.Context, songID string) (*models.Song, error) {
 	data, err := s.Client.Get(ctx, "/services/v2/songs/"+songID, nil)
