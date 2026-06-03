@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/micahlee/pco-cli/internal/pco"
 	"github.com/spf13/cobra"
 )
 
@@ -130,11 +131,20 @@ var songsSetCmd = &cobra.Command{
 	Short: "Assign a song to an existing plan item",
 	Args:  cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		title, err := svc.SetSong(cmd.Context(), args[0], args[1], args[2])
+		opts, err := songAssignmentOptions(cmd)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(printer.Writer(), "Set '%s' on item %s (plan %s)\n", title, args[1], args[0])
+		result, err := svc.SetSong(cmd.Context(), args[0], args[1], args[2], opts)
+		if err != nil {
+			return err
+		}
+		if jsonOutput {
+			return printer.JSON(result)
+		}
+		fmt.Fprintf(printer.Writer(), "Set item %s to %s", args[1], result.Title)
+		printAssignmentArrangement(result)
+		fmt.Fprintf(printer.Writer(), " (plan %s)\n", args[0])
 		return nil
 	},
 }
@@ -145,11 +155,20 @@ var songsAddCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		label, _ := cmd.Flags().GetString("label")
-		title, newID, err := svc.AddSongItem(cmd.Context(), args[0], args[1], args[2], label)
+		opts, err := songAssignmentOptions(cmd)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(printer.Writer(), "Added '%s' after item %s (new item ID: %s)\n", title, args[1], newID)
+		result, err := svc.AddSongItem(cmd.Context(), args[0], args[1], args[2], label, opts)
+		if err != nil {
+			return err
+		}
+		if jsonOutput {
+			return printer.JSON(result)
+		}
+		fmt.Fprintf(printer.Writer(), "Added %s after item %s (new item ID: %s", result.Title, args[1], result.ItemID)
+		printAssignmentArrangement(result)
+		fmt.Fprintln(printer.Writer(), ")")
 		return nil
 	},
 }
@@ -159,6 +178,10 @@ func init() {
 	songsSearchCmd.Flags().Bool("include-arrangements", false, "include arrangement summaries in search results")
 	songsHistoryCmd.Flags().Int("weeks", 16, "number of weeks to look back")
 	songsAddCmd.Flags().String("label", "", "label to append in parentheses (e.g. \"Lord's Supper\")")
+	songsSetCmd.Flags().String("arrangement-id", "", "arrangement ID to attach")
+	songsSetCmd.Flags().Bool("song-only", false, "leave arrangement blank")
+	songsAddCmd.Flags().String("arrangement-id", "", "arrangement ID to attach")
+	songsAddCmd.Flags().Bool("song-only", false, "leave arrangement blank")
 
 	songsCmd.AddCommand(songsSearchCmd)
 	songsCmd.AddCommand(songsHistoryCmd)
@@ -180,4 +203,27 @@ func formatInt(value *int) string {
 		return ""
 	}
 	return strconv.Itoa(*value)
+}
+
+func songAssignmentOptions(cmd *cobra.Command) (pco.SongAssignmentOptions, error) {
+	arrangementID, _ := cmd.Flags().GetString("arrangement-id")
+	songOnly, _ := cmd.Flags().GetBool("song-only")
+	if arrangementID != "" && songOnly {
+		return pco.SongAssignmentOptions{}, fmt.Errorf("--arrangement-id and --song-only cannot be used together")
+	}
+	return pco.SongAssignmentOptions{ArrangementID: arrangementID, SongOnly: songOnly}, nil
+}
+
+func printAssignmentArrangement(result *pco.SongAssignmentResult) {
+	if result.ArrangementID != "" {
+		name := result.ArrangementName
+		if name == "" {
+			name = "arrangement"
+		}
+		fmt.Fprintf(printer.Writer(), ", arrangement %s (%s)", name, result.ArrangementID)
+		return
+	}
+	if result.Warning != "" {
+		fmt.Fprintf(printer.Writer(), " [warning: %s]", result.Warning)
+	}
 }

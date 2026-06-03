@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -256,9 +257,219 @@ func TestSongHistoryIncludesNormalizedJSONFields(t *testing.T) {
 	}
 }
 
+func TestSetSongAttachesDefaultArrangement(t *testing.T) {
+	client := api.New("client", "secret")
+	fake := &songFakeHTTPClient{
+		t: t,
+		responses: map[string]string{
+			"/services/v2/songs/song-1": `{
+				"data": {
+					"type": "Song",
+					"id": "song-1",
+					"attributes": {"title": "Rejoice"}
+				}
+			}`,
+			"/services/v2/songs/song-1/arrangements?per_page=100": `{
+				"data": [
+					{
+						"type": "Arrangement",
+						"id": "arr-1",
+						"attributes": {"name": "Default Arrangement", "archived_at": null}
+					}
+				]
+			}`,
+			"/services/v2/service_types/643436/plans/plan-1/items/item-1": `{
+				"data": {"type": "Item", "id": "item-1"}
+			}`,
+		},
+	}
+	client.HTTPClient = fake
+
+	service := &Service{
+		Client: client,
+		Config: &config.Config{ServiceTypeID: "643436"},
+	}
+
+	result, err := service.SetSong(context.Background(), "plan-1", "item-1", "song-1", SongAssignmentOptions{})
+	if err != nil {
+		t.Fatalf("SetSong returned error: %v", err)
+	}
+
+	if result.Title != "Rejoice" || result.ArrangementID != "arr-1" || result.ArrangementName != "Default Arrangement" {
+		t.Fatalf("expected song and arrangement result, got %#v", result)
+	}
+
+	body := fake.requestJSON(t, http.MethodPatch, "/services/v2/service_types/643436/plans/plan-1/items/item-1")
+	data := body["data"].(map[string]any)
+	relationships := data["relationships"].(map[string]any)
+	assertRelationship(t, relationships, "song", "Song", "song-1")
+	assertRelationship(t, relationships, "arrangement", "Arrangement", "arr-1")
+}
+
+func TestSetSongOnlyLeavesArrangementBlank(t *testing.T) {
+	client := api.New("client", "secret")
+	fake := &songFakeHTTPClient{
+		t: t,
+		responses: map[string]string{
+			"/services/v2/songs/song-1": `{
+				"data": {
+					"type": "Song",
+					"id": "song-1",
+					"attributes": {"title": "Rejoice"}
+				}
+			}`,
+			"/services/v2/service_types/643436/plans/plan-1/items/item-1": `{
+				"data": {"type": "Item", "id": "item-1"}
+			}`,
+		},
+	}
+	client.HTTPClient = fake
+
+	service := &Service{
+		Client: client,
+		Config: &config.Config{ServiceTypeID: "643436"},
+	}
+
+	result, err := service.SetSong(context.Background(), "plan-1", "item-1", "song-1", SongAssignmentOptions{SongOnly: true})
+	if err != nil {
+		t.Fatalf("SetSong returned error: %v", err)
+	}
+
+	if result.ArrangementID != "" || !strings.Contains(result.Warning, "no arrangement attached") {
+		t.Fatalf("expected song-only warning without arrangement, got %#v", result)
+	}
+
+	body := fake.requestJSON(t, http.MethodPatch, "/services/v2/service_types/643436/plans/plan-1/items/item-1")
+	data := body["data"].(map[string]any)
+	relationships := data["relationships"].(map[string]any)
+	assertRelationship(t, relationships, "song", "Song", "song-1")
+	arrangement := relationships["arrangement"].(map[string]any)
+	if arrangement["data"] != nil {
+		t.Fatalf("expected null arrangement relationship, got %#v", arrangement)
+	}
+}
+
+func TestAddSongItemAttachesExplicitArrangement(t *testing.T) {
+	client := api.New("client", "secret")
+	fake := &songFakeHTTPClient{
+		t: t,
+		responses: map[string]string{
+			"/services/v2/service_types/643436/plans/plan-1/items/anchor-1": `{
+				"data": {
+					"type": "Item",
+					"id": "anchor-1",
+					"attributes": {"title": "Anchor", "sequence": 4}
+				}
+			}`,
+			"/services/v2/songs/song-1": `{
+				"data": {
+					"type": "Song",
+					"id": "song-1",
+					"attributes": {"title": "Come Thou Fount"}
+				}
+			}`,
+			"/services/v2/songs/song-1/arrangements?per_page=100": `{
+				"data": [
+					{
+						"type": "Arrangement",
+						"id": "arr-1",
+						"attributes": {"name": "Default Arrangement", "archived_at": null}
+					},
+					{
+						"type": "Arrangement",
+						"id": "arr-2",
+						"attributes": {"name": "Acoustic", "archived_at": null}
+					}
+				]
+			}`,
+			"/services/v2/service_types/643436/plans/plan-1/items": `{
+				"data": {"type": "Item", "id": "new-1"}
+			}`,
+		},
+	}
+	client.HTTPClient = fake
+
+	service := &Service{
+		Client: client,
+		Config: &config.Config{ServiceTypeID: "643436"},
+	}
+
+	result, err := service.AddSongItem(context.Background(), "plan-1", "anchor-1", "song-1", "Lord's Supper", SongAssignmentOptions{ArrangementID: "arr-2"})
+	if err != nil {
+		t.Fatalf("AddSongItem returned error: %v", err)
+	}
+
+	if result.ItemID != "new-1" || result.Title != "Come Thou Fount (Lord's Supper)" || result.ArrangementID != "arr-2" {
+		t.Fatalf("expected new song item result, got %#v", result)
+	}
+
+	body := fake.requestJSON(t, http.MethodPost, "/services/v2/service_types/643436/plans/plan-1/items")
+	data := body["data"].(map[string]any)
+	attrs := data["attributes"].(map[string]any)
+	if attrs["sequence"].(float64) != 5 {
+		t.Fatalf("expected sequence 5, got %#v", attrs["sequence"])
+	}
+	if attrs["title"] != "Come Thou Fount (Lord's Supper)" {
+		t.Fatalf("expected labeled title, got %#v", attrs["title"])
+	}
+	relationships := data["relationships"].(map[string]any)
+	assertRelationship(t, relationships, "song", "Song", "song-1")
+	assertRelationship(t, relationships, "arrangement", "Arrangement", "arr-2")
+}
+
+func TestSetSongRequiresArrangementIDWhenMultipleActiveArrangements(t *testing.T) {
+	client := api.New("client", "secret")
+	client.HTTPClient = &songFakeHTTPClient{
+		t: t,
+		responses: map[string]string{
+			"/services/v2/songs/song-1": `{
+				"data": {
+					"type": "Song",
+					"id": "song-1",
+					"attributes": {"title": "Ambiguous Song"}
+				}
+			}`,
+			"/services/v2/songs/song-1/arrangements?per_page=100": `{
+				"data": [
+					{
+						"type": "Arrangement",
+						"id": "arr-1",
+						"attributes": {"name": "Acoustic", "archived_at": null}
+					},
+					{
+						"type": "Arrangement",
+						"id": "arr-2",
+						"attributes": {"name": "Full Band", "archived_at": null}
+					}
+				]
+			}`,
+		},
+	}
+
+	service := &Service{
+		Client: client,
+		Config: &config.Config{ServiceTypeID: "643436"},
+	}
+
+	_, err := service.SetSong(context.Background(), "plan-1", "item-1", "song-1", SongAssignmentOptions{})
+	if err == nil {
+		t.Fatal("expected ambiguous arrangement error")
+	}
+	if !strings.Contains(err.Error(), "multiple active arrangements") || !strings.Contains(err.Error(), "--arrangement-id") {
+		t.Fatalf("expected actionable arrangement error, got %v", err)
+	}
+}
+
 type songFakeHTTPClient struct {
 	t         *testing.T
 	responses map[string]string
+	requests  []songFakeRequest
+}
+
+type songFakeRequest struct {
+	method string
+	path   string
+	body   string
 }
 
 func (c *songFakeHTTPClient) Do(req *http.Request) (*http.Response, error) {
@@ -266,6 +477,19 @@ func (c *songFakeHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	if req.URL.RawQuery != "" {
 		key += "?" + req.URL.RawQuery
 	}
+	var requestBody string
+	if req.Body != nil {
+		data, err := io.ReadAll(req.Body)
+		if err != nil {
+			c.t.Fatalf("reading request body: %v", err)
+		}
+		requestBody = string(data)
+	}
+	c.requests = append(c.requests, songFakeRequest{
+		method: req.Method,
+		path:   req.URL.Path,
+		body:   requestBody,
+	})
 	body, ok := c.responses[key]
 	if !ok {
 		c.t.Fatalf("unexpected request path: %s", req.URL.String())
@@ -276,4 +500,28 @@ func (c *songFakeHTTPClient) Do(req *http.Request) (*http.Response, error) {
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Header:     make(http.Header),
 	}, nil
+}
+
+func (c *songFakeHTTPClient) requestJSON(t *testing.T, method, path string) map[string]any {
+	t.Helper()
+	idx := slices.IndexFunc(c.requests, func(req songFakeRequest) bool {
+		return req.method == method && req.path == path
+	})
+	if idx == -1 {
+		t.Fatalf("expected %s %s request in %#v", method, path, c.requests)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(c.requests[idx].body), &body); err != nil {
+		t.Fatalf("unmarshaling request body %q: %v", c.requests[idx].body, err)
+	}
+	return body
+}
+
+func assertRelationship(t *testing.T, relationships map[string]any, name, wantType, wantID string) {
+	t.Helper()
+	rel := relationships[name].(map[string]any)
+	data := rel["data"].(map[string]any)
+	if data["type"] != wantType || data["id"] != wantID {
+		t.Fatalf("expected %s relationship %s/%s, got %#v", name, wantType, wantID, data)
+	}
 }
