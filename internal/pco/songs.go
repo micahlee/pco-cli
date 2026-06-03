@@ -6,11 +6,27 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/micahlee/pco-cli/internal/models"
 )
+
+// SongAssignmentOptions controls how a song item relationship is updated.
+type SongAssignmentOptions struct {
+	ArrangementID string
+	SongOnly      bool
+}
+
+// SongAssignmentResult describes a song item mutation.
+type SongAssignmentResult struct {
+	ItemID          string `json:"item_id"`
+	SongID          string `json:"song_id"`
+	Title           string `json:"title"`
+	ArrangementID   string `json:"arrangement_id,omitempty"`
+	ArrangementName string `json:"arrangement_name,omitempty"`
+	Warning         string `json:"warning,omitempty"`
+}
 
 // SearchSongs searches for songs by title.
 func (s *Service) SearchSongs(ctx context.Context, query string) ([]models.Song, error) {
@@ -206,50 +222,65 @@ func (s *Service) SongHistory(ctx context.Context, weeks int) ([]models.SongUsag
 }
 
 // SetSong assigns a song to an existing plan item.
-func (s *Service) SetSong(ctx context.Context, planID, itemID, songID string) (string, error) {
+func (s *Service) SetSong(ctx context.Context, planID, itemID, songID string, opts SongAssignmentOptions) (*SongAssignmentResult, error) {
 	song, err := s.GetSong(ctx, songID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-
-	body := fmt.Sprintf(`{
-		"data": {
-			"type": "Item",
-			"attributes": {"title": %q},
-			"relationships": {
-				"song": {"data": {"type": "Song", "id": %q}}
-			}
-		}
-	}`, song.Attrs.Title, songID)
-
-	_, err = s.Client.Patch(ctx, s.servicePath()+"/plans/"+planID+"/items/"+itemID, body)
+	arrangement, err := s.resolveSongArrangement(ctx, songID, opts)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return song.Attrs.Title, nil
+	relationships := songItemRelationships(songID, arrangement)
+	if opts.SongOnly {
+		relationships["arrangement"] = map[string]any{"data": nil}
+	}
+
+	body, err := json.Marshal(map[string]any{
+		"data": map[string]any{
+			"type":          "Item",
+			"id":            itemID,
+			"attributes":    map[string]any{"title": song.Attrs.Title},
+			"relationships": relationships,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = s.Client.Patch(ctx, s.servicePath()+"/plans/"+planID+"/items/"+itemID, string(body))
+	if err != nil {
+		return nil, err
+	}
+
+	return songAssignmentResult(itemID, songID, song.Attrs.Title, arrangement, opts.SongOnly), nil
 }
 
 // AddSongItem inserts a new song item after the specified item.
-func (s *Service) AddSongItem(ctx context.Context, planID, afterItemID, songID, label string) (string, string, error) {
+func (s *Service) AddSongItem(ctx context.Context, planID, afterItemID, songID, label string, opts SongAssignmentOptions) (*SongAssignmentResult, error) {
 	// Get anchor item's sequence
 	anchorData, err := s.Client.Get(ctx, s.servicePath()+"/plans/"+planID+"/items/"+afterItemID, nil)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	anchorResource, err := models.ParseOne(anchorData)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 	var anchorAttrs models.PlanItemAttrs
 	if err := json.Unmarshal(anchorResource.Attributes, &anchorAttrs); err != nil {
-		return "", "", err
+		return nil, err
 	}
 
 	// Get song title
 	song, err := s.GetSong(ctx, songID)
 	if err != nil {
-		return "", "", err
+		return nil, err
+	}
+	arrangement, err := s.resolveSongArrangement(ctx, songID, opts)
+	if err != nil {
+		return nil, err
 	}
 
 	displayTitle := song.Attrs.Title
@@ -257,29 +288,113 @@ func (s *Service) AddSongItem(ctx context.Context, planID, afterItemID, songID, 
 		displayTitle = fmt.Sprintf("%s (%s)", song.Attrs.Title, label)
 	}
 
-	body := fmt.Sprintf(`{
-		"data": {
+	body, err := json.Marshal(map[string]any{
+		"data": map[string]any{
 			"type": "Item",
-			"attributes": {
+			"attributes": map[string]any{
 				"item_type": "song",
-				"title": %q,
-				"sequence": %s
+				"title":     displayTitle,
+				"sequence":  anchorAttrs.Sequence + 1,
 			},
-			"relationships": {
-				"song": {"data": {"type": "Song", "id": %q}}
-			}
-		}
-	}`, displayTitle, strconv.Itoa(anchorAttrs.Sequence+1), songID)
-
-	respData, err := s.Client.Post(ctx, s.servicePath()+"/plans/"+planID+"/items", body)
+			"relationships": songItemRelationships(songID, arrangement),
+		},
+	})
 	if err != nil {
-		return "", "", err
+		return nil, err
+	}
+
+	respData, err := s.Client.Post(ctx, s.servicePath()+"/plans/"+planID+"/items", string(body))
+	if err != nil {
+		return nil, err
 	}
 
 	resource, err := models.ParseOne(respData)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
 
-	return displayTitle, resource.ID, nil
+	return songAssignmentResult(resource.ID, songID, displayTitle, arrangement, opts.SongOnly), nil
+}
+
+func (s *Service) resolveSongArrangement(ctx context.Context, songID string, opts SongAssignmentOptions) (*models.Arrangement, error) {
+	if opts.SongOnly {
+		return nil, nil
+	}
+
+	arrangements, err := s.ListSongArrangements(ctx, songID)
+	if err != nil {
+		return nil, err
+	}
+
+	if opts.ArrangementID != "" {
+		for _, arrangement := range arrangements {
+			if arrangement.ID == opts.ArrangementID {
+				return &arrangement, nil
+			}
+		}
+		return nil, fmt.Errorf("arrangement %s not found for song %s", opts.ArrangementID, songID)
+	}
+
+	var active []models.Arrangement
+	for _, arrangement := range arrangements {
+		if arrangement.Archived {
+			continue
+		}
+		active = append(active, arrangement)
+		if strings.EqualFold(arrangement.Attrs.Name, "Default Arrangement") {
+			return &arrangement, nil
+		}
+	}
+
+	if len(active) == 1 {
+		return &active[0], nil
+	}
+	if len(active) == 0 {
+		return nil, fmt.Errorf("song %s has no active arrangements; pass --song-only to leave arrangement blank", songID)
+	}
+
+	return nil, fmt.Errorf("song %s has multiple active arrangements (%s); pass --arrangement-id", songID, arrangementChoices(active))
+}
+
+func arrangementChoices(arrangements []models.Arrangement) string {
+	choices := make([]string, len(arrangements))
+	for i, arrangement := range arrangements {
+		name := arrangement.Attrs.Name
+		if name == "" {
+			name = "unnamed"
+		}
+		choices[i] = fmt.Sprintf("%s %q", arrangement.ID, name)
+	}
+	return strings.Join(choices, ", ")
+}
+
+func songItemRelationships(songID string, arrangement *models.Arrangement) map[string]any {
+	relationships := map[string]any{
+		"song": map[string]any{
+			"data": map[string]string{"type": "Song", "id": songID},
+		},
+	}
+	if arrangement != nil {
+		relationships["arrangement"] = map[string]any{
+			"data": map[string]string{"type": "Arrangement", "id": arrangement.ID},
+		}
+	}
+	return relationships
+}
+
+func songAssignmentResult(itemID, songID, title string, arrangement *models.Arrangement, songOnly bool) *SongAssignmentResult {
+	result := &SongAssignmentResult{
+		ItemID: itemID,
+		SongID: songID,
+		Title:  title,
+	}
+	if arrangement != nil {
+		result.ArrangementID = arrangement.ID
+		result.ArrangementName = arrangement.Attrs.Name
+		return result
+	}
+	if songOnly {
+		result.Warning = "no arrangement attached (--song-only)"
+	}
+	return result
 }
