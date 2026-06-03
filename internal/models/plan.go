@@ -108,12 +108,18 @@ type PlanExportSong struct {
 
 // PlanExportArrangement is normalized arrangement metadata for a song item.
 type PlanExportArrangement struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name,omitempty"`
-	BPM           *float64 `json:"bpm,omitempty"`
-	Meter         string   `json:"meter,omitempty"`
-	Length        *int     `json:"length,omitempty"`
-	ChordChartKey string   `json:"chord_chart_key,omitempty"`
+	ID            string          `json:"id"`
+	Name          string          `json:"name,omitempty"`
+	BPM           *float64        `json:"bpm,omitempty"`
+	Meter         string          `json:"meter,omitempty"`
+	Length        *int            `json:"length,omitempty"`
+	ChordChartKey string          `json:"chord_chart_key,omitempty"`
+	Lyrics        string          `json:"lyrics,omitempty"`
+	LyricsEnabled *bool           `json:"lyrics_enabled,omitempty"`
+	Sequence      []string        `json:"sequence,omitempty"`
+	SequenceFull  json.RawMessage `json:"sequence_full,omitempty"`
+	SequenceShort []string        `json:"sequence_short,omitempty"`
+	Notes         string          `json:"notes,omitempty"`
 }
 
 // PlanExportRaw contains raw JSON:API resources for troubleshooting.

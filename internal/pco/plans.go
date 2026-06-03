@@ -327,6 +327,12 @@ func exportItem(
 			item.Arrangement.Meter = resourceAttrString(arrangement, "meter")
 			item.Arrangement.Length = resourceAttrInt(arrangement, "length")
 			item.Arrangement.ChordChartKey = resourceAttrString(arrangement, "chord_chart_key")
+			item.Arrangement.Lyrics = resourceAttrString(arrangement, "lyrics")
+			item.Arrangement.LyricsEnabled = resourceAttrBool(arrangement, "lyrics_enabled")
+			item.Arrangement.Sequence = resourceAttrStringArray(arrangement, "sequence")
+			item.Arrangement.SequenceFull = resourceAttr(arrangement, "sequence_full")
+			item.Arrangement.SequenceShort = resourceAttrStringArray(arrangement, "sequence_short")
+			item.Arrangement.Notes = resourceAttrString(arrangement, "notes")
 		}
 	}
 
@@ -437,6 +443,30 @@ func resourceAttrInt(resource models.Resource, name string) *int {
 		return nil
 	}
 	return &i
+}
+
+func resourceAttrBool(resource models.Resource, name string) *bool {
+	value := resourceAttr(resource, name)
+	if len(value) == 0 || string(value) == "null" {
+		return nil
+	}
+	var b bool
+	if err := json.Unmarshal(value, &b); err != nil {
+		return nil
+	}
+	return &b
+}
+
+func resourceAttrStringArray(resource models.Resource, name string) []string {
+	value := resourceAttr(resource, name)
+	if len(value) == 0 || string(value) == "null" {
+		return nil
+	}
+	var strings []string
+	if err := json.Unmarshal(value, &strings); err != nil {
+		return nil
+	}
+	return strings
 }
 
 func resourceAttr(resource models.Resource, name string) json.RawMessage {
