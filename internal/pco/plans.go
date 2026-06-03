@@ -149,6 +149,15 @@ func (s *Service) ExportPlan(ctx context.Context, planID string, includeRaw bool
 		return nil, err
 	}
 
+	planNoteResources, err := s.listPlanNoteResources(ctx, planID)
+	if err != nil {
+		return nil, err
+	}
+	planNotes, err := normalizePlanNotes(planNoteResources)
+	if err != nil {
+		return nil, err
+	}
+
 	itemResources, included, err := s.listPlanItemResources(ctx, planID)
 	if err != nil {
 		return nil, err
@@ -175,6 +184,7 @@ func (s *Service) ExportPlan(ctx context.Context, planID string, includeRaw bool
 			Dates:             planAttrs.Dates,
 			SortDate:          planAttrs.SortDate,
 			PlanNotes:         planAttrs.PlanNotes,
+			PlanNoteDetails:   planNotes,
 			PlanningCenterURL: planAttrs.PlanningCenterURL,
 		},
 		Items: make([]models.PlanExportItem, 0, len(itemResources)),
@@ -195,13 +205,41 @@ func (s *Service) ExportPlan(ctx context.Context, planID string, includeRaw bool
 
 	if includeRaw {
 		export.Raw = &models.PlanExportRaw{
-			Plan:     planResource,
-			Items:    itemResources,
-			Included: included,
+			Plan:      planResource,
+			PlanNotes: planNoteResources,
+			Items:     itemResources,
+			Included:  included,
 		}
 	}
 
 	return export, nil
+}
+
+func (s *Service) listPlanNoteResources(ctx context.Context, planID string) ([]models.Resource, error) {
+	return s.Client.GetAll(ctx, s.servicePath()+"/plans/"+planID+"/notes", url.Values{"per_page": {"100"}})
+}
+
+func normalizePlanNotes(resources []models.Resource) ([]models.PlanExportPlanNote, error) {
+	notes := make([]models.PlanExportPlanNote, 0, len(resources))
+	for _, resource := range resources {
+		var attrs struct {
+			CategoryName string `json:"category_name"`
+			Content      string `json:"content"`
+			CreatedAt    string `json:"created_at"`
+			UpdatedAt    string `json:"updated_at"`
+		}
+		if err := json.Unmarshal(resource.Attributes, &attrs); err != nil {
+			return nil, err
+		}
+		notes = append(notes, models.PlanExportPlanNote{
+			ID:           resource.ID,
+			CategoryName: attrs.CategoryName,
+			Content:      attrs.Content,
+			CreatedAt:    attrs.CreatedAt,
+			UpdatedAt:    attrs.UpdatedAt,
+		})
+	}
+	return notes, nil
 }
 
 func (s *Service) listPlanItemResources(ctx context.Context, planID string) ([]models.Resource, []models.Resource, error) {
