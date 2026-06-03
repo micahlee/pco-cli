@@ -18,6 +18,25 @@ var songsSearchCmd = &cobra.Command{
 	Short: "Search songs in the library",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		query, _ := cmd.Flags().GetString("query")
+		includeArrangements, _ := cmd.Flags().GetBool("include-arrangements")
+		if includeArrangements {
+			songs, err := svc.SearchSongsWithArrangements(cmd.Context(), query)
+			if err != nil {
+				return err
+			}
+			if jsonOutput {
+				return printer.JSON(songs)
+			}
+
+			headers := []string{"ID", "Title", "Author", "Arrangements"}
+			rows := make([][]string, len(songs))
+			for i, s := range songs {
+				rows[i] = []string{s.ID, s.Title, s.Author, strconv.Itoa(len(s.Arrangements))}
+			}
+			printer.Table(headers, rows)
+			return nil
+		}
+
 		songs, err := svc.SearchSongs(cmd.Context(), query)
 		if err != nil {
 			return err
@@ -137,6 +156,7 @@ var songsAddCmd = &cobra.Command{
 
 func init() {
 	songsSearchCmd.Flags().String("query", "", "search by song title")
+	songsSearchCmd.Flags().Bool("include-arrangements", false, "include arrangement summaries in search results")
 	songsHistoryCmd.Flags().Int("weeks", 16, "number of weeks to look back")
 	songsAddCmd.Flags().String("label", "", "label to append in parentheses (e.g. \"Lord's Supper\")")
 

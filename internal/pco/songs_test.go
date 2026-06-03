@@ -93,6 +93,62 @@ func TestListSongArrangementsIncludesTempoAndMeter(t *testing.T) {
 	}
 }
 
+func TestSearchSongsWithArrangementsIncludesArrangementSummaries(t *testing.T) {
+	client := api.New("client", "secret")
+	client.HTTPClient = &songFakeHTTPClient{
+		t: t,
+		responses: map[string]string{
+			"/services/v2/songs?per_page=20&where%5Btitle%5D=King+Of+Kings": `{
+				"data": [
+					{
+						"type": "Song",
+						"id": "17791889",
+						"attributes": {
+							"title": "King Of Kings",
+							"author": "Brooke Ligertwood",
+							"hidden": false
+						}
+					}
+				]
+			}`,
+			"/services/v2/songs/17791889/arrangements?per_page=100": `{
+				"data": [
+					{
+						"type": "Arrangement",
+						"id": "20319171",
+						"attributes": {
+							"name": "Hillsong Worship",
+							"bpm": 136,
+							"meter": "4/4"
+						}
+					}
+				]
+			}`,
+		},
+	}
+
+	service := &Service{Client: client}
+	results, err := service.SearchSongsWithArrangements(context.Background(), "King Of Kings")
+	if err != nil {
+		t.Fatalf("SearchSongsWithArrangements returned error: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 search result, got %d", len(results))
+	}
+	result := results[0]
+	if result.ID != "17791889" || result.Title != "King Of Kings" {
+		t.Fatalf("expected song identity, got %#v", result)
+	}
+	if len(result.Arrangements) != 1 {
+		t.Fatalf("expected arrangement summary, got %#v", result.Arrangements)
+	}
+	arrangement := result.Arrangements[0]
+	if arrangement.ID != "20319171" || arrangement.BPM == nil || *arrangement.BPM != 136 || arrangement.Meter != "4/4" {
+		t.Fatalf("expected arrangement tempo summary, got %#v", arrangement)
+	}
+}
+
 type songFakeHTTPClient struct {
 	t         *testing.T
 	responses map[string]string

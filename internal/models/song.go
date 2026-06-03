@@ -15,6 +15,26 @@ type Song struct {
 	Attrs SongAttrs
 }
 
+// SongSearchResult is a song search hit with optional arrangement summaries.
+type SongSearchResult struct {
+	ID           string               `json:"id"`
+	Title        string               `json:"title"`
+	Author       string               `json:"author"`
+	Arrangements []ArrangementSummary `json:"arrangements"`
+}
+
+// ArrangementSummary is the compact arrangement data included in song search results.
+type ArrangementSummary struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name,omitempty"`
+	BPM           *float64 `json:"bpm,omitempty"`
+	Meter         string   `json:"meter,omitempty"`
+	Length        *int     `json:"length,omitempty"`
+	ChordChartKey string   `json:"chord_chart_key,omitempty"`
+	Archived      bool     `json:"archived"`
+	UpdatedAt     string   `json:"updated_at,omitempty"`
+}
+
 // SongUsage tracks how a song has been used in past plans.
 type SongUsage struct {
 	SongID string
