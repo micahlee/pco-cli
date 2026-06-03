@@ -53,12 +53,22 @@ type PlanExport struct {
 
 // PlanExportPlan is the top-level plan metadata in an export.
 type PlanExportPlan struct {
-	ID                string `json:"id"`
-	Title             string `json:"title"`
-	Dates             string `json:"dates"`
-	SortDate          string `json:"sort_date,omitempty"`
-	PlanNotes         string `json:"plan_notes"`
-	PlanningCenterURL string `json:"planning_center_url"`
+	ID                string               `json:"id"`
+	Title             string               `json:"title"`
+	Dates             string               `json:"dates"`
+	SortDate          string               `json:"sort_date,omitempty"`
+	PlanNotes         string               `json:"plan_notes"`
+	PlanNoteDetails   []PlanExportPlanNote `json:"plan_note_details"`
+	PlanningCenterURL string               `json:"planning_center_url"`
+}
+
+// PlanExportPlanNote is a note attached to the whole service plan.
+type PlanExportPlanNote struct {
+	ID           string `json:"id"`
+	CategoryName string `json:"category_name,omitempty"`
+	Content      string `json:"content"`
+	CreatedAt    string `json:"created_at,omitempty"`
+	UpdatedAt    string `json:"updated_at,omitempty"`
 }
 
 // PlanExportItem is a normalized item in service order.
@@ -108,9 +118,10 @@ type PlanExportArrangement struct {
 
 // PlanExportRaw contains raw JSON:API resources for troubleshooting.
 type PlanExportRaw struct {
-	Plan     *Resource  `json:"plan,omitempty"`
-	Items    []Resource `json:"items,omitempty"`
-	Included []Resource `json:"included,omitempty"`
+	Plan      *Resource  `json:"plan,omitempty"`
+	PlanNotes []Resource `json:"plan_notes,omitempty"`
+	Items     []Resource `json:"items,omitempty"`
+	Included  []Resource `json:"included,omitempty"`
 }
 
 // PlanTemplateAttrs holds the attributes of a plan template.

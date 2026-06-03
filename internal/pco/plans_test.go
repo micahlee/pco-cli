@@ -17,17 +17,31 @@ func TestExportPlanIncludesDetailsAndIncludedResources(t *testing.T) {
 		t: t,
 		responses: map[string]string{
 			"/services/v2/service_types/643436/plans/87689985": `{
-				"data": {
-					"type": "Plan",
-					"id": "87689985",
-					"attributes": {
-						"title": "May 31 Worship",
-						"dates": "May 31, 2026",
-						"sort_date": "2026-05-31T09:00:00Z",
-						"plan_notes": "Plan-level note",
-						"planning_center_url": "https://services.planningcenteronline.com/plans/87689985"
+					"data": {
+						"type": "Plan",
+						"id": "87689985",
+						"attributes": {
+							"title": "May 31 Worship",
+							"dates": "May 31, 2026",
+							"sort_date": "2026-05-31T09:00:00Z",
+							"plan_notes": "Legacy plan notes field",
+							"planning_center_url": "https://services.planningcenteronline.com/plans/87689985"
+						}
 					}
-				}
+				}`,
+			"/services/v2/service_types/643436/plans/87689985/notes?per_page=100": `{
+				"data": [
+					{
+						"type": "PlanNote",
+						"id": "plan-note-1",
+						"attributes": {
+							"category_name": "General",
+							"content": "Plan-level note",
+							"created_at": "2026-05-01T12:00:00Z",
+							"updated_at": "2026-05-02T12:00:00Z"
+						}
+					}
+				]
 			}`,
 			"/services/v2/service_types/643436/plans/87689985/items": `{
 				"data": [
@@ -111,6 +125,12 @@ func TestExportPlanIncludesDetailsAndIncludedResources(t *testing.T) {
 	if len(export.Items) != 3 {
 		t.Fatalf("expected 3 items, got %d", len(export.Items))
 	}
+	if export.Plan.PlanNotes != "Legacy plan notes field" {
+		t.Fatalf("expected legacy plan_notes string, got %q", export.Plan.PlanNotes)
+	}
+	if len(export.Plan.PlanNoteDetails) != 1 || export.Plan.PlanNoteDetails[0].Content != "Plan-level note" {
+		t.Fatalf("expected plan note detail, got %#v", export.Plan.PlanNoteDetails)
+	}
 
 	if export.Items[0].ID != "header-1" || export.Items[1].ID != "reading-1" || export.Items[2].ID != "song-1" {
 		t.Fatalf("items were not sorted by sequence: %#v", export.Items)
@@ -153,7 +173,7 @@ func TestExportPlanIncludesDetailsAndIncludedResources(t *testing.T) {
 		t.Fatalf("expected media IDs, got %#v", song.MediaIDs)
 	}
 
-	if export.Raw == nil || export.Raw.Plan == nil || len(export.Raw.Items) != 3 || len(export.Raw.Included) != 3 {
+	if export.Raw == nil || export.Raw.Plan == nil || len(export.Raw.PlanNotes) != 1 || len(export.Raw.Items) != 3 || len(export.Raw.Included) != 3 {
 		t.Fatalf("expected raw JSON:API resources, got %#v", export.Raw)
 	}
 }
@@ -170,6 +190,7 @@ func TestExportPlanIncludesSecondPageIncludedResources(t *testing.T) {
 					"attributes": {"title": "Paged Plan", "dates": "July 5, 2026"}
 				}
 			}`,
+			"/services/v2/service_types/643436/plans/paged/notes?per_page=100": `{"data": []}`,
 			"/services/v2/service_types/643436/plans/paged/items?include=song%2Carrangement%2Citem_notes%2Cmedia&per_page=100": `{
 				"data": [
 					{
@@ -238,6 +259,61 @@ func TestExportPlanIncludesSecondPageIncludedResources(t *testing.T) {
 	}
 	if len(song.Notes) != 1 || song.Notes[0].Content != "Leader" {
 		t.Fatalf("expected page 2 item note, got %#v", song.Notes)
+	}
+}
+
+func TestExportPlanIncludesPaginatedPlanNotes(t *testing.T) {
+	client := api.New("client", "secret")
+	client.HTTPClient = &fakeHTTPClient{
+		t: t,
+		responses: map[string]string{
+			"/services/v2/service_types/643436/plans/notes-paged": `{
+				"data": {
+					"type": "Plan",
+					"id": "notes-paged",
+					"attributes": {"title": "Plan With Notes", "dates": "July 12, 2026"}
+				}
+			}`,
+			"/services/v2/service_types/643436/plans/notes-paged/notes?per_page=100": `{
+				"data": [
+					{
+						"type": "PlanNote",
+						"id": "plan-note-1",
+						"attributes": {"category_name": "General", "content": "First page"}
+					}
+				],
+				"links": {
+					"next": "https://api.planningcenteronline.com/services/v2/service_types/643436/plans/notes-paged/notes?offset=100"
+				}
+			}`,
+			"/services/v2/service_types/643436/plans/notes-paged/notes?offset=100": `{
+				"data": [
+					{
+						"type": "PlanNote",
+						"id": "plan-note-2",
+						"attributes": {"category_name": "Band", "content": "Second page"}
+					}
+				]
+			}`,
+			"/services/v2/service_types/643436/plans/notes-paged/items?include=song%2Carrangement%2Citem_notes%2Cmedia&per_page=100": `{"data": []}`,
+		},
+	}
+
+	service := &Service{
+		Client: client,
+		Config: &config.Config{ServiceTypeID: "643436"},
+	}
+
+	export, err := service.ExportPlan(context.Background(), "notes-paged", false)
+	if err != nil {
+		t.Fatalf("ExportPlan returned error: %v", err)
+	}
+
+	if len(export.Plan.PlanNoteDetails) != 2 {
+		t.Fatalf("expected 2 plan notes, got %#v", export.Plan.PlanNoteDetails)
+	}
+	if export.Plan.PlanNoteDetails[0].Content != "First page" || export.Plan.PlanNoteDetails[1].Content != "Second page" {
+		t.Fatalf("expected paginated plan notes, got %#v", export.Plan.PlanNoteDetails)
 	}
 }
 
