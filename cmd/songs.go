@@ -82,8 +82,8 @@ var songsHistoryCmd = &cobra.Command{
 		for i, u := range usage {
 			rows[i] = []string{
 				u.Title,
-				strconv.Itoa(len(u.Dates)),
-				u.Dates[0],
+				strconv.Itoa(u.Uses),
+				u.LastUsed,
 				strings.Join(u.Dates, ", "),
 			}
 		}

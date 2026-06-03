@@ -2,12 +2,16 @@ package pco
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/micahlee/pco-cli/internal/api"
+	"github.com/micahlee/pco-cli/internal/config"
 )
 
 func TestListSongArrangementsIncludesTempoAndMeter(t *testing.T) {
@@ -146,6 +150,109 @@ func TestSearchSongsWithArrangementsIncludesArrangementSummaries(t *testing.T) {
 	arrangement := result.Arrangements[0]
 	if arrangement.ID != "20319171" || arrangement.BPM == nil || *arrangement.BPM != 136 || arrangement.Meter != "4/4" {
 		t.Fatalf("expected arrangement tempo summary, got %#v", arrangement)
+	}
+}
+
+func TestSongHistoryIncludesNormalizedJSONFields(t *testing.T) {
+	recentDate := time.Now().AddDate(0, 0, -7).Format("2006-01-02")
+	olderDate := time.Now().AddDate(0, 0, -14).Format("2006-01-02")
+
+	client := api.New("client", "secret")
+	client.HTTPClient = &songFakeHTTPClient{
+		t: t,
+		responses: map[string]string{
+			"/services/v2/songs?per_page=100": `{
+				"data": [
+					{
+						"type": "Song",
+						"id": "song-1",
+						"attributes": {"title": "Behold Our God", "hidden": false}
+					}
+				]
+			}`,
+			"/services/v2/service_types/643436/plans?filter=past&order=-sort_date&per_page=50": fmt.Sprintf(`{
+				"data": [
+					{
+						"type": "Plan",
+						"id": "plan-1",
+						"attributes": {"sort_date": %q}
+					},
+					{
+						"type": "Plan",
+						"id": "plan-2",
+						"attributes": {"sort_date": %q}
+					}
+				]
+			}`, recentDate+"T09:00:00Z", olderDate+"T09:00:00Z"),
+			"/services/v2/service_types/643436/plans/plan-1/items?filter=songs&per_page=50": `{
+				"data": [
+					{
+						"type": "Item",
+						"id": "item-1",
+						"attributes": {"title": "Behold Our God", "item_type": "song", "sequence": 1},
+						"relationships": {"song": {"data": {"type": "Song", "id": "song-1"}}}
+					}
+				]
+			}`,
+			"/services/v2/service_types/643436/plans/plan-2/items?filter=songs&per_page=50": `{
+				"data": [
+					{
+						"type": "Item",
+						"id": "item-2",
+						"attributes": {"title": "Behold Our God", "item_type": "song", "sequence": 1},
+						"relationships": {"song": {"data": {"type": "Song", "id": "song-1"}}}
+					}
+				]
+			}`,
+		},
+	}
+
+	service := &Service{
+		Client: client,
+		Config: &config.Config{ServiceTypeID: "643436"},
+	}
+
+	usage, planCount, err := service.SongHistory(context.Background(), 20)
+	if err != nil {
+		t.Fatalf("SongHistory returned error: %v", err)
+	}
+
+	if planCount != 2 {
+		t.Fatalf("expected 2 plans, got %d", planCount)
+	}
+	if len(usage) != 1 {
+		t.Fatalf("expected 1 song usage, got %#v", usage)
+	}
+	if usage[0].SongID != "song-1" || usage[0].Title != "Behold Our God" {
+		t.Fatalf("expected song identity, got %#v", usage[0])
+	}
+	if usage[0].Uses != 2 {
+		t.Fatalf("expected uses 2, got %d", usage[0].Uses)
+	}
+	if usage[0].LastUsed != recentDate {
+		t.Fatalf("expected last used %s, got %s", recentDate, usage[0].LastUsed)
+	}
+	if strings.Join(usage[0].Dates, ",") != recentDate+","+olderDate {
+		t.Fatalf("expected sorted dates, got %#v", usage[0].Dates)
+	}
+
+	data, err := json.Marshal(usage[0])
+	if err != nil {
+		t.Fatalf("marshaling usage: %v", err)
+	}
+	var jsonShape map[string]any
+	if err := json.Unmarshal(data, &jsonShape); err != nil {
+		t.Fatalf("unmarshaling usage JSON: %v", err)
+	}
+	for _, key := range []string{"song_id", "title", "uses", "last_used", "dates"} {
+		if _, ok := jsonShape[key]; !ok {
+			t.Fatalf("expected JSON key %q in %s", key, data)
+		}
+	}
+	for _, key := range []string{"SongID", "Title", "Uses", "LastUsed", "Dates"} {
+		if _, ok := jsonShape[key]; ok {
+			t.Fatalf("did not expect Go-style JSON key %q in %s", key, data)
+		}
 	}
 }
 

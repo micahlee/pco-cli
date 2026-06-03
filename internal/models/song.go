@@ -37,9 +37,11 @@ type ArrangementSummary struct {
 
 // SongUsage tracks how a song has been used in past plans.
 type SongUsage struct {
-	SongID string
-	Title  string
-	Dates  []string
+	SongID   string   `json:"song_id"`
+	Title    string   `json:"title"`
+	Uses     int      `json:"uses"`
+	LastUsed string   `json:"last_used"`
+	Dates    []string `json:"dates"`
 }
 
 // ArrangementAttrs holds the useful planning attributes of a song arrangement.
