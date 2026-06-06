@@ -129,6 +129,9 @@ func (s *Service) EnableSignups(ctx context.Context, planID, teamID string) (*mo
 		return nil, err
 	}
 	if len(signups) > 0 {
+		if len(signups) > 1 {
+			return nil, fmt.Errorf("found %d TeamSignup records for team %s on plan %s; clean up duplicates before enabling", len(signups), teamID, planID)
+		}
 		signup := signups[0]
 		enabled := signup.Attrs.SignupsEnabled != nil && *signup.Attrs.SignupsEnabled
 		if enabled {
@@ -190,7 +193,11 @@ func (s *Service) EnableSignupsMonth(ctx context.Context, yearMonth, teamID stri
 	for _, plan := range plans {
 		result, err := s.EnableSignups(ctx, plan.ID, teamID)
 		if err != nil {
-			return nil, fmt.Errorf("plan %s: %w", plan.ID, err)
+			results = append(results, models.TeamSignupEnableResult{
+				PlanID: plan.ID,
+				Error:  err.Error(),
+			})
+			continue
 		}
 		results = append(results, *result)
 	}

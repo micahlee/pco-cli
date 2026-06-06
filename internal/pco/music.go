@@ -128,17 +128,18 @@ func (s *Service) MusicMonth(ctx context.Context, yearMonth string) (*models.Mus
 			return nil, err
 		}
 
-		signups, err := s.ListTeamSignups(ctx, plan.ID, s.Config.BandTeamID)
-		if err != nil {
-			return nil, err
-		}
-
 		mp := models.MusicMonthPlan{
 			Date:   dateStr,
 			PlanID: plan.ID,
 			Title:  title,
 		}
-		if len(signups) > 0 {
+
+		signups, err := s.ListTeamSignups(ctx, plan.ID, s.Config.BandTeamID)
+		if err != nil {
+			mp.BandSignupError = err.Error()
+		} else if len(signups) > 1 {
+			mp.BandSignupError = fmt.Sprintf("found %d TeamSignup records for Band", len(signups))
+		} else if len(signups) == 1 {
 			mp.BandSignup = &signups[0]
 		}
 
@@ -207,20 +208,17 @@ func (s *Service) ListPlansForMonth(ctx context.Context, yearMonth string) ([]mo
 	year := monthStart.Year()
 	month := int(monthStart.Month())
 
-	// Fetch future and recent past plans, filter to this month
-	futurePlans, err := s.Client.Get(ctx, s.servicePath()+"/plans",
-		url.Values{"filter": {"future"}, "per_page": {"25"}, "order": {"sort_date"}})
+	// Fetch all future and past plans, then filter to this month.
+	futureResources, err := s.Client.GetAll(ctx, s.servicePath()+"/plans",
+		url.Values{"filter": {"future"}, "per_page": {"100"}, "order": {"sort_date"}})
 	if err != nil {
 		return nil, err
 	}
-	pastPlans, err := s.Client.Get(ctx, s.servicePath()+"/plans",
-		url.Values{"filter": {"past"}, "per_page": {"10"}, "order": {"-sort_date"}})
+	pastResources, err := s.Client.GetAll(ctx, s.servicePath()+"/plans",
+		url.Values{"filter": {"past"}, "per_page": {"100"}, "order": {"-sort_date"}})
 	if err != nil {
 		return nil, err
 	}
-
-	futureResources, _, _ := models.ParseList(futurePlans)
-	pastResources, _, _ := models.ParseList(pastPlans)
 
 	// Reverse past so oldest first, then append future
 	for i, j := 0, len(pastResources)-1; i < j; i, j = i+1, j-1 {
