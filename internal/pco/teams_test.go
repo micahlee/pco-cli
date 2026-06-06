@@ -171,6 +171,166 @@ func TestEnableSignupsCreatesWhenMissing(t *testing.T) {
 	}
 }
 
+func TestEnableSignupsErrorsOnDuplicateTeamSignups(t *testing.T) {
+	service, fake := newTeamSignupTestService(t, map[string]string{
+		"/services/v2/service_types/643436/plans/plan-1/team_signups?include=team&per_page=100": `{
+			"data": [
+				{
+					"type": "TeamSignup",
+					"id": "signup-1",
+					"attributes": {"signups_enabled": true},
+					"relationships": {"team": {"data": {"type": "Team", "id": "2461416"}}}
+				},
+				{
+					"type": "TeamSignup",
+					"id": "signup-2",
+					"attributes": {"signups_enabled": false},
+					"relationships": {"team": {"data": {"type": "Team", "id": "2461416"}}}
+				}
+			]
+		}`,
+	})
+
+	_, err := service.EnableSignups(context.Background(), "plan-1", "")
+	if err == nil {
+		t.Fatal("expected duplicate TeamSignup error")
+	}
+	if !strings.Contains(err.Error(), "2 TeamSignup records") {
+		t.Fatalf("expected duplicate count in error, got %v", err)
+	}
+	if fake.sawMethod(http.MethodPost) || fake.sawMethod(http.MethodPatch) {
+		t.Fatal("did not expect mutation when duplicates exist")
+	}
+}
+
+func TestListPlansForMonthFollowsPagination(t *testing.T) {
+	service, _ := newTeamSignupTestService(t, map[string]string{
+		"/services/v2/service_types/643436/plans?filter=future&order=sort_date&per_page=100": `{
+			"data": [
+				{
+					"type": "Plan",
+					"id": "june-plan",
+					"attributes": {"title": "June", "sort_date": "2026-06-28T09:00:00Z"}
+				}
+			],
+			"links": {"next": "https://api.planningcenteronline.com/services/v2/service_types/643436/plans?page=2"}
+		}`,
+		"/services/v2/service_types/643436/plans?page=2": `{
+			"data": [
+				{
+					"type": "Plan",
+					"id": "july-plan",
+					"attributes": {"title": "July", "sort_date": "2026-07-05T09:00:00Z"}
+				}
+			]
+		}`,
+		"/services/v2/service_types/643436/plans?filter=past&order=-sort_date&per_page=100": `{"data": []}`,
+	})
+
+	plans, err := service.ListPlansForMonth(context.Background(), "2026-07")
+	if err != nil {
+		t.Fatalf("ListPlansForMonth returned error: %v", err)
+	}
+	if len(plans) != 1 || plans[0].ID != "july-plan" {
+		t.Fatalf("expected paged July plan, got %#v", plans)
+	}
+}
+
+func TestEnableSignupsMonthReportsPerPlanErrors(t *testing.T) {
+	service, fake := newTeamSignupTestService(t, map[string]string{
+		"/services/v2/service_types/643436/plans?filter=future&order=sort_date&per_page=100": `{
+			"data": [
+				{
+					"type": "Plan",
+					"id": "plan-1",
+					"attributes": {"title": "July 1", "sort_date": "2026-07-05T09:00:00Z"}
+				},
+				{
+					"type": "Plan",
+					"id": "plan-2",
+					"attributes": {"title": "July 2", "sort_date": "2026-07-12T09:00:00Z"}
+				}
+			]
+		}`,
+		"/services/v2/service_types/643436/plans?filter=past&order=-sort_date&per_page=100": `{"data": []}`,
+		"/services/v2/service_types/643436/plans/plan-1/team_signups?include=team&per_page=100": `{
+			"data": [
+				{
+					"type": "TeamSignup",
+					"id": "signup-1",
+					"attributes": {"signups_enabled": true},
+					"relationships": {"team": {"data": {"type": "Team", "id": "2461416"}}}
+				}
+			]
+		}`,
+		"/services/v2/service_types/643436/plans/plan-2/team_signups?include=team&per_page=100": `{
+			"data": [
+				{
+					"type": "TeamSignup",
+					"id": "signup-2",
+					"attributes": {"signups_enabled": true},
+					"relationships": {"team": {"data": {"type": "Team", "id": "2461416"}}}
+				},
+				{
+					"type": "TeamSignup",
+					"id": "signup-3",
+					"attributes": {"signups_enabled": true},
+					"relationships": {"team": {"data": {"type": "Team", "id": "2461416"}}}
+				}
+			]
+		}`,
+	})
+
+	results, err := service.EnableSignupsMonth(context.Background(), "2026-07", "")
+	if err != nil {
+		t.Fatalf("EnableSignupsMonth returned top-level error: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected two results, got %#v", results)
+	}
+	if results[0].PlanID != "plan-1" || results[0].Error != "" || results[0].TeamSignup.ID != "signup-1" {
+		t.Fatalf("expected successful first result, got %#v", results[0])
+	}
+	if results[1].PlanID != "plan-2" || !strings.Contains(results[1].Error, "2 TeamSignup records") {
+		t.Fatalf("expected duplicate error second result, got %#v", results[1])
+	}
+	if fake.sawMethod(http.MethodPost) || fake.sawMethod(http.MethodPatch) {
+		t.Fatal("did not expect mutations for already-enabled or duplicate plans")
+	}
+}
+
+func TestMusicMonthKeepsOverviewWhenSignupLookupFails(t *testing.T) {
+	service, fake := newTeamSignupTestService(t, map[string]string{
+		"/services/v2/service_types/643436/plans?filter=future&order=sort_date&per_page=100": `{
+			"data": [
+				{
+					"type": "Plan",
+					"id": "plan-1",
+					"attributes": {"title": "July 1", "sort_date": "2026-07-05T09:00:00Z"}
+				}
+			]
+		}`,
+		"/services/v2/service_types/643436/plans?filter=past&order=-sort_date&per_page=100":     `{"data": []}`,
+		"/services/v2/service_types/643436/teams/2461416/people?per_page=100":                   `{"data": []}`,
+		"/services/v2/service_types/643436/plans/plan-1/team_members?per_page=50":               `{"data": []}`,
+		"/services/v2/service_types/643436/plans/plan-1/team_signups?include=team&per_page=100": `{"errors": [{"detail": "not found"}]}`,
+	})
+	fake.statuses = map[string]int{
+		"/services/v2/service_types/643436/plans/plan-1/team_signups?include=team&per_page=100": http.StatusNotFound,
+	}
+
+	month, err := service.MusicMonth(context.Background(), "2026-07")
+	if err != nil {
+		t.Fatalf("MusicMonth returned error: %v", err)
+	}
+	if len(month.Plans) != 1 {
+		t.Fatalf("expected one plan, got %#v", month.Plans)
+	}
+	if month.Plans[0].BandSignupError == "" {
+		t.Fatalf("expected signup lookup error on plan, got %#v", month.Plans[0])
+	}
+}
+
 func newTeamSignupTestService(t *testing.T, responses map[string]string) (*Service, *teamSignupFakeHTTPClient) {
 	t.Helper()
 	client := api.New("client", "secret")
@@ -185,6 +345,7 @@ func newTeamSignupTestService(t *testing.T, responses map[string]string) (*Servi
 type teamSignupFakeHTTPClient struct {
 	t         *testing.T
 	responses map[string]string
+	statuses  map[string]int
 	requests  []teamSignupFakeRequest
 }
 
@@ -217,20 +378,29 @@ func (c *teamSignupFakeHTTPClient) Do(req *http.Request) (*http.Response, error)
 	if !ok {
 		c.t.Fatalf("unexpected request path: %s", req.URL.String())
 	}
+	status := c.statuses[key]
+	if status == 0 {
+		status = http.StatusOK
+	}
 	return &http.Response{
-		StatusCode: http.StatusOK,
+		StatusCode: status,
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Header:     make(http.Header),
 	}, nil
 }
 
 func (c *teamSignupFakeHTTPClient) sawMethod(method string) bool {
+	return c.countMethod(method) > 0
+}
+
+func (c *teamSignupFakeHTTPClient) countMethod(method string) int {
+	count := 0
 	for _, req := range c.requests {
 		if req.method == method {
-			return true
+			count++
 		}
 	}
-	return false
+	return count
 }
 
 func (c *teamSignupFakeHTTPClient) requestJSON(t *testing.T, method, path string) map[string]any {

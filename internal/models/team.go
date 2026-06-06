@@ -29,13 +29,14 @@ type Availability struct {
 
 // MusicMonthPlan holds music scheduling data for a single plan in a month.
 type MusicMonthPlan struct {
-	Date         string
-	PlanID       string
-	Title        string
-	MusicLead    *TeamMember // nil if none assigned
-	BandMembers  []TeamMember
-	BlockedNames []string // "Name (reason)" strings
-	BandSignup   *TeamSignup
+	Date            string
+	PlanID          string
+	Title           string
+	MusicLead       *TeamMember // nil if none assigned
+	BandMembers     []TeamMember
+	BlockedNames    []string // "Name (reason)" strings
+	BandSignup      *TeamSignup
+	BandSignupError string
 }
 
 // MusicMonth holds the full month overview.
@@ -66,6 +67,7 @@ type TeamSignupEnableResult struct {
 	TeamSignup TeamSignup `json:"team_signup"`
 	Created    bool       `json:"created"`
 	Updated    bool       `json:"updated"`
+	Error      string     `json:"error,omitempty"`
 }
 
 // UnmarshalJSON keeps TeamSignup attrs tolerant as PCO evolves.

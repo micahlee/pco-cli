@@ -127,7 +127,10 @@ var teamsEnableSignupsMonthCmd = &cobra.Command{
 			return err
 		}
 		if jsonOutput {
-			return printer.JSON(results)
+			if err := printer.JSON(results); err != nil {
+				return err
+			}
+			return teamSignupResultsError(results)
 		}
 
 		headers := []string{"Plan ID", "TeamSignup ID", "Team", "Status", "Result"}
@@ -142,7 +145,7 @@ var teamsEnableSignupsMonthCmd = &cobra.Command{
 			}
 		}
 		printer.Table(headers, rows)
-		return nil
+		return teamSignupResultsError(results)
 	},
 }
 
@@ -213,6 +216,9 @@ func signupStatus(signup models.TeamSignup) string {
 }
 
 func enableSignupAction(result models.TeamSignupEnableResult) string {
+	if result.Error != "" {
+		return "error: " + result.Error
+	}
 	if result.Created {
 		return "created"
 	}
@@ -220,6 +226,19 @@ func enableSignupAction(result models.TeamSignupEnableResult) string {
 		return "updated"
 	}
 	return "already enabled"
+}
+
+func teamSignupResultsError(results []models.TeamSignupEnableResult) error {
+	var failed []string
+	for _, result := range results {
+		if result.Error != "" {
+			failed = append(failed, result.PlanID)
+		}
+	}
+	if len(failed) == 0 {
+		return nil
+	}
+	return fmt.Errorf("failed to enable sign-ups for plan(s): %s", strings.Join(failed, ", "))
 }
 
 func teamSignupAttrsSummary(signup models.TeamSignup) string {
