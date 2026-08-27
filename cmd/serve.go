@@ -19,6 +19,9 @@ var serveRequestsCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if jsonOutput {
+			return printer.JSON(requests)
+		}
 
 		if len(requests) == 0 {
 			fmt.Fprintln(printer.Writer(), "No pending serve requests.")
@@ -47,6 +50,9 @@ var serveAcceptCmd = &cobra.Command{
 		if err := svc.AcceptServeRequest(cmd.Context(), args[0]); err != nil {
 			return err
 		}
+		if jsonOutput {
+			return printer.JSON(map[string]any{"status": "success", "operation": "serve.accept", "schedule_id": args[0]})
+		}
 		fmt.Fprintf(printer.Writer(), "Accepted serve request %s\n", args[0])
 		return nil
 	},
@@ -59,6 +65,9 @@ var serveDeclineCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := svc.DeclineServeRequest(cmd.Context(), args[0]); err != nil {
 			return err
+		}
+		if jsonOutput {
+			return printer.JSON(map[string]any{"status": "success", "operation": "serve.decline", "schedule_id": args[0]})
 		}
 		fmt.Fprintf(printer.Writer(), "Declined serve request %s\n", args[0])
 		return nil

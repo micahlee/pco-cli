@@ -11,14 +11,9 @@ import (
 
 // ListTeamMembers returns team member assignments for a plan.
 func (s *Service) ListTeamMembers(ctx context.Context, planID string) ([]models.TeamMember, error) {
-	data, err := s.Client.Get(ctx,
+	resources, err := s.Client.GetAll(ctx,
 		s.servicePath()+"/plans/"+planID+"/team_members",
 		url.Values{"per_page": {"50"}})
-	if err != nil {
-		return nil, err
-	}
-
-	resources, _, err := models.ParseList(data)
 	if err != nil {
 		return nil, err
 	}
@@ -49,6 +44,9 @@ func (s *Service) ListTeamMembers(ctx context.Context, planID string) ([]models.
 
 // SchedulePerson assigns a person to a plan position.
 func (s *Service) SchedulePerson(ctx context.Context, planID, personID, teamID, position string) (string, error) {
+	if planID == "" || personID == "" || teamID == "" || position == "" {
+		return "", fmt.Errorf("plan ID, person ID, team ID, and position are required")
+	}
 	body := fmt.Sprintf(`{
 		"data": {
 			"type": "PlanPerson",
@@ -75,12 +73,17 @@ func (s *Service) SchedulePerson(ctx context.Context, planID, personID, teamID, 
 	}
 
 	var attrs models.TeamMemberAttrs
-	json.Unmarshal(resource.Attributes, &attrs)
+	if err := json.Unmarshal(resource.Attributes, &attrs); err != nil {
+		return "", err
+	}
 	return attrs.Name, nil
 }
 
 // UnschedulePerson removes an assignment from a plan.
 func (s *Service) UnschedulePerson(ctx context.Context, planID, assignID string) error {
+	if planID == "" || assignID == "" {
+		return fmt.Errorf("plan ID and assignment ID are required")
+	}
 	return s.Client.Delete(ctx, s.servicePath()+"/plans/"+planID+"/team_members/"+assignID)
 }
 
@@ -90,16 +93,25 @@ func (s *Service) ListTeamSignups(ctx context.Context, planID, teamID string) ([
 		teamID = s.Config.BandTeamID
 	}
 
-	data, err := s.Client.Get(ctx,
-		s.servicePath()+"/plans/"+planID+"/team_signups",
-		url.Values{"per_page": {"100"}, "include": {"team"}})
-	if err != nil {
-		return nil, err
-	}
-
-	resources, included, _, err := models.ParseListDocument(data)
-	if err != nil {
-		return nil, err
+	path := s.servicePath() + "/plans/" + planID + "/team_signups"
+	params := url.Values{"per_page": {"100"}, "include": {"team"}}
+	var resources, included []models.Resource
+	for path != "" {
+		data, err := s.Client.Get(ctx, path, params)
+		if err != nil {
+			return nil, err
+		}
+		params = nil
+		pageResources, pageIncluded, links, err := models.ParseListDocument(data)
+		if err != nil {
+			return nil, err
+		}
+		resources = append(resources, pageResources...)
+		included = append(included, pageIncluded...)
+		path = ""
+		if links != nil {
+			path = links.Next
+		}
 	}
 	teams := includedResources(included, "Team")
 

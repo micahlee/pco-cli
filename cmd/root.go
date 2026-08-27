@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -35,7 +36,8 @@ var rootCmd = &cobra.Command{
 		printer = output.New(os.Stdout, jsonOutput)
 		return nil
 	},
-	SilenceUsage: true,
+	SilenceUsage:  true,
+	SilenceErrors: true,
 }
 
 func init() {
@@ -46,6 +48,18 @@ func init() {
 func Execute(version string) {
 	rootCmd.Version = version
 	if err := rootCmd.Execute(); err != nil {
+		if jsonOutput {
+			var structured interface{ StructuredResult() any }
+			if errors.As(err, &structured) {
+				_ = output.New(os.Stdout, true).JSON(structured.StructuredResult())
+			} else {
+				_ = output.New(os.Stdout, true).JSON(map[string]any{
+					"schema_version": "1", "status": "error",
+					"error": map[string]string{"code": "command_failed", "message": err.Error()},
+				})
+			}
+			os.Exit(1)
+		}
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
