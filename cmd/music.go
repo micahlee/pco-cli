@@ -21,6 +21,9 @@ var musicTeamCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if jsonOutput {
+			return printer.JSON(map[string]any{"members": members, "band_team_id": svc.Config.BandTeamID, "service_responsibilities_team_id": svc.Config.ServiceRespTeamID})
+		}
 
 		headers := []string{"Person ID", "Name", "Typical Positions"}
 		rows := make([][]string, len(members))
@@ -44,6 +47,9 @@ var musicAvailabilityCmd = &cobra.Command{
 		results, err := svc.CheckAvailability(cmd.Context(), args[0])
 		if err != nil {
 			return err
+		}
+		if jsonOutput {
+			return printer.JSON(map[string]any{"date": args[0], "availability": results})
 		}
 
 		var available, blocked []string
@@ -83,6 +89,9 @@ var musicMonthCmd = &cobra.Command{
 		result, err := svc.MusicMonth(cmd.Context(), args[0])
 		if err != nil {
 			return err
+		}
+		if jsonOutput {
+			return printer.JSON(result)
 		}
 
 		if len(result.Plans) == 0 {

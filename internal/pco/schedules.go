@@ -3,6 +3,7 @@ package pco
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/url"
 
 	"github.com/micahlee/pco-cli/internal/models"
@@ -14,13 +15,8 @@ func (s *Service) personSchedulesPath() string {
 
 // ListServeRequests returns pending (unconfirmed) serve requests.
 func (s *Service) ListServeRequests(ctx context.Context) ([]models.Schedule, error) {
-	data, err := s.Client.Get(ctx, s.personSchedulesPath(),
+	resources, err := s.Client.GetAll(ctx, s.personSchedulesPath(),
 		url.Values{"per_page": {"50"}, "order": {"sort_date"}})
-	if err != nil {
-		return nil, err
-	}
-
-	resources, _, err := models.ParseList(data)
 	if err != nil {
 		return nil, err
 	}
@@ -40,12 +36,18 @@ func (s *Service) ListServeRequests(ctx context.Context) ([]models.Schedule, err
 
 // AcceptServeRequest accepts a serve request.
 func (s *Service) AcceptServeRequest(ctx context.Context, scheduleID string) error {
+	if scheduleID == "" {
+		return fmt.Errorf("schedule ID is required")
+	}
 	_, err := s.Client.Post(ctx, s.personSchedulesPath()+"/"+scheduleID+"/accept", "{}")
 	return err
 }
 
 // DeclineServeRequest declines a serve request.
 func (s *Service) DeclineServeRequest(ctx context.Context, scheduleID string) error {
+	if scheduleID == "" {
+		return fmt.Errorf("schedule ID is required")
+	}
 	_, err := s.Client.Post(ctx, s.personSchedulesPath()+"/"+scheduleID+"/decline", "{}")
 	return err
 }

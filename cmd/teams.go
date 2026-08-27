@@ -24,6 +24,9 @@ var teamsShowCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if jsonOutput {
+			return printer.JSON(members)
+		}
 
 		headers := []string{"Assign ID", "Name", "Team Position", "Status"}
 		rows := make([][]string, len(members))
@@ -44,6 +47,9 @@ var teamsScheduleCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if jsonOutput {
+			return printer.JSON(map[string]any{"status": "success", "operation": "teams.schedule", "plan_id": args[0], "person_id": args[1], "team_id": args[2], "position": args[3], "name": name})
+		}
 		fmt.Fprintf(printer.Writer(), "Scheduled %s as %s (notification queued, not sent)\n", name, args[3])
 		return nil
 	},
@@ -56,6 +62,9 @@ var teamsUnscheduleCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := svc.UnschedulePerson(cmd.Context(), args[0], args[1]); err != nil {
 			return err
+		}
+		if jsonOutput {
+			return printer.JSON(map[string]any{"status": "success", "operation": "teams.unschedule", "plan_id": args[0], "assignment_id": args[1]})
 		}
 		fmt.Fprintf(printer.Writer(), "Removed assignment %s from plan %s\n", args[1], args[0])
 		return nil

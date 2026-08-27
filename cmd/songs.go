@@ -43,6 +43,9 @@ var songsSearchCmd = &cobra.Command{
 			return err
 		}
 
+		if jsonOutput {
+			return printer.JSON(songs)
+		}
 		headers := []string{"ID", "Title", "Author"}
 		rows := make([][]string, len(songs))
 		for i, s := range songs {
@@ -173,6 +176,98 @@ var songsAddCmd = &cobra.Command{
 	},
 }
 
+var songsReplaceCmd = &cobra.Command{
+	Use:   "replace",
+	Short: "Safely replace one song in a plan by date and title",
+	Long:  "Resolve one plan, current item, replacement library song, and arrangement; then recheck the current item immediately before updating and verify it afterward.",
+	Example: `  pco songs replace --date 2026-09-13 --current "Ancient of Days" --with "I Am Not My Own"
+  pco songs replace --plan-id 123 --current "Ancient of Days" --with "I Am Not My Own" --dry-run --json`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		date, _ := cmd.Flags().GetString("date")
+		planID, _ := cmd.Flags().GetString("plan-id")
+		current, _ := cmd.Flags().GetString("current")
+		replacement, _ := cmd.Flags().GetString("with")
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		arrangementID, _ := cmd.Flags().GetString("arrangement-id")
+		songOnly, _ := cmd.Flags().GetBool("song-only")
+		result, err := svc.ReplaceSong(cmd.Context(), pco.ReplaceSongOptions{
+			Date: date, PlanID: planID, CurrentTitle: current, Replacement: replacement,
+			ArrangementID: arrangementID, SongOnly: songOnly, DryRun: dryRun,
+		})
+		if err != nil {
+			return err
+		}
+		if jsonOutput {
+			return printer.JSON(result)
+		}
+		switch result.Status {
+		case "preview":
+			fmt.Fprintf(printer.Writer(), "Preview: replace %s with %s in plan %s (%s), item %s", result.Current.Title, result.Replacement.Title, result.Plan.ID, result.Plan.Date, result.Item.ID)
+		case "noop":
+			fmt.Fprintf(printer.Writer(), "No change: %s is already present in plan %s (%s), item %s", result.Replacement.Title, result.Plan.ID, result.Plan.Date, result.Item.ID)
+		default:
+			fmt.Fprintf(printer.Writer(), "Replaced %s with %s in plan %s (%s), item %s; verified", result.Current.Title, result.Replacement.Title, result.Plan.ID, result.Plan.Date, result.Item.ID)
+		}
+		if result.Arrangement != nil {
+			fmt.Fprintf(printer.Writer(), ", arrangement %s (%s)", result.Arrangement.Name, result.Arrangement.ID)
+		}
+		fmt.Fprintln(printer.Writer())
+		for _, warning := range result.Warnings {
+			fmt.Fprintf(printer.Writer(), "Warning: %s\n", warning)
+		}
+		return nil
+	},
+}
+
+var songsCreateCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Explicitly create a library song and its initial arrangement",
+	Long:  "Create a song library record and its initial arrangement. This command never places the song in a service plan. Duplicate matches stop creation unless --allow-duplicate is explicit.",
+	Example: `  pco songs create --title "Example Song" --authors "A. Writer" --arrangement-name "Default Arrangement" --ccli 123456 --key D --bpm 72 --meter 4/4
+  pco songs create --title "Original Song" --authors "A. Writer" --arrangement-name "Default Arrangement" --no-ccli`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		title, _ := cmd.Flags().GetString("title")
+		authors, _ := cmd.Flags().GetString("authors")
+		arrangementName, _ := cmd.Flags().GetString("arrangement-name")
+		noCCLI, _ := cmd.Flags().GetBool("no-ccli")
+		key, _ := cmd.Flags().GetString("key")
+		meter, _ := cmd.Flags().GetString("meter")
+		allowDuplicate, _ := cmd.Flags().GetBool("allow-duplicate")
+		resumeSongID, _ := cmd.Flags().GetString("resume-song-id")
+		var ccli *int
+		if cmd.Flags().Changed("ccli") {
+			value, _ := cmd.Flags().GetInt("ccli")
+			ccli = &value
+		}
+		var bpm *float64
+		if cmd.Flags().Changed("bpm") {
+			value, _ := cmd.Flags().GetFloat64("bpm")
+			bpm = &value
+		}
+		result, err := svc.CreateSong(cmd.Context(), pco.CreateSongOptions{
+			Title: title, Authors: authors, ArrangementName: arrangementName, CCLINumber: ccli, NoCCLI: noCCLI,
+			Key: key, BPM: bpm, Meter: meter, AllowDuplicate: allowDuplicate, ResumeSongID: resumeSongID,
+		})
+		if err != nil {
+			return err
+		}
+		if jsonOutput {
+			return printer.JSON(result)
+		}
+		if result.Status == "noop" {
+			fmt.Fprintf(printer.Writer(), "No change: song %s (%s) already has arrangement %s (%s); verified\n", result.Song.Title, result.Song.ID, result.Arrangement.Name, result.Arrangement.ID)
+		} else {
+			fmt.Fprintf(printer.Writer(), "Created song %s (%s) and arrangement %s (%s); verified\n", result.Song.Title, result.Song.ID, result.Arrangement.Name, result.Arrangement.ID)
+		}
+		for _, warning := range result.Warnings {
+			fmt.Fprintf(printer.Writer(), "Warning: %s\n", warning)
+		}
+		return nil
+	},
+}
+
 func init() {
 	songsSearchCmd.Flags().String("query", "", "search by song title")
 	songsSearchCmd.Flags().Bool("include-arrangements", false, "include arrangement summaries in search results")
@@ -182,12 +277,31 @@ func init() {
 	songsSetCmd.Flags().Bool("song-only", false, "leave arrangement blank")
 	songsAddCmd.Flags().String("arrangement-id", "", "arrangement ID to attach")
 	songsAddCmd.Flags().Bool("song-only", false, "leave arrangement blank")
+	songsReplaceCmd.Flags().String("date", "", "service date in YYYY-MM-DD (required unless --plan-id is used)")
+	songsReplaceCmd.Flags().String("plan-id", "", "explicit plan ID in the configured service type")
+	songsReplaceCmd.Flags().String("current", "", "exact title currently assigned to the plan item")
+	songsReplaceCmd.Flags().String("with", "", "exact replacement library-song title")
+	songsReplaceCmd.Flags().String("arrangement-id", "", "explicit replacement arrangement ID")
+	songsReplaceCmd.Flags().Bool("song-only", false, "leave the replacement arrangement blank")
+	songsReplaceCmd.Flags().Bool("dry-run", false, "resolve and validate everything without mutation")
+	songsCreateCmd.Flags().String("title", "", "new song title (required)")
+	songsCreateCmd.Flags().String("authors", "", "song author or authors (required)")
+	songsCreateCmd.Flags().String("arrangement-name", "", "initial arrangement name (required)")
+	songsCreateCmd.Flags().Int("ccli", 0, "CCLI song number (required unless --no-ccli)")
+	songsCreateCmd.Flags().Bool("no-ccli", false, "confirm that this song has no CCLI number")
+	songsCreateCmd.Flags().String("key", "", "optional arrangement chord-chart key")
+	songsCreateCmd.Flags().Float64("bpm", 0, "optional arrangement tempo")
+	songsCreateCmd.Flags().String("meter", "", "optional arrangement meter, such as 4/4")
+	songsCreateCmd.Flags().Bool("allow-duplicate", false, "create despite plausible title or CCLI matches")
+	songsCreateCmd.Flags().String("resume-song-id", "", "complete the arrangement for a song left by a partial prior create")
 
 	songsCmd.AddCommand(songsSearchCmd)
 	songsCmd.AddCommand(songsHistoryCmd)
 	songsCmd.AddCommand(songsArrangementsCmd)
 	songsCmd.AddCommand(songsSetCmd)
 	songsCmd.AddCommand(songsAddCmd)
+	songsCmd.AddCommand(songsReplaceCmd)
+	songsCmd.AddCommand(songsCreateCmd)
 	rootCmd.AddCommand(songsCmd)
 }
 

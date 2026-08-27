@@ -137,6 +137,6 @@ type PlanTemplateAttrs struct {
 
 // PlanTemplate is a resolved plan template.
 type PlanTemplate struct {
-	ID    string
-	Attrs PlanTemplateAttrs
+	ID    string            `json:"id"`
+	Attrs PlanTemplateAttrs `json:"attrs"`
 }

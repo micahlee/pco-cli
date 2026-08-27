@@ -30,21 +30,19 @@ type SongAssignmentResult struct {
 
 // SearchSongs searches for songs by title.
 func (s *Service) SearchSongs(ctx context.Context, query string) ([]models.Song, error) {
-	params := url.Values{"per_page": {"20"}}
+	params := url.Values{"per_page": {"100"}}
 	if query != "" {
 		params.Set("where[title]", query)
 	}
 
-	data, err := s.Client.Get(ctx, "/services/v2/songs", params)
+	resources, err := s.Client.GetAll(ctx, "/services/v2/songs", params)
 	if err != nil {
 		return nil, err
 	}
+	return songsFromResources(resources)
+}
 
-	resources, _, err := models.ParseList(data)
-	if err != nil {
-		return nil, err
-	}
-
+func songsFromResources(resources []models.Resource) ([]models.Song, error) {
 	songs := make([]models.Song, len(resources))
 	for i, r := range resources {
 		var attrs models.SongAttrs
@@ -140,6 +138,9 @@ func (s *Service) ListSongArrangements(ctx context.Context, songID string) ([]mo
 
 // SongHistory returns usage data for active songs over the past N weeks.
 func (s *Service) SongHistory(ctx context.Context, weeks int) ([]models.SongUsage, int, error) {
+	if weeks <= 0 {
+		return nil, 0, fmt.Errorf("weeks must be greater than zero")
+	}
 	cutoff := time.Now().AddDate(0, 0, -weeks*7)
 
 	// Fetch all active songs
@@ -169,7 +170,10 @@ func (s *Service) SongHistory(ctx context.Context, weeks int) ([]models.SongUsag
 		if err := json.Unmarshal(r.Attributes, &attrs); err != nil {
 			return nil, 0, err
 		}
-		dateStr := attrs.SortDate[:10]
+		dateStr, dateErr := datePart(attrs.SortDate)
+		if dateErr != nil {
+			return nil, 0, fmt.Errorf("plan %s has malformed or missing sort_date: %w", r.ID, dateErr)
+		}
 		planDate, _ := time.Parse("2006-01-02", dateStr)
 		if planDate.Before(cutoff) {
 			break
@@ -181,8 +185,13 @@ func (s *Service) SongHistory(ctx context.Context, weeks int) ([]models.SongUsag
 	usage := make(map[string]*models.SongUsage)
 	for _, p := range plans {
 		var pattrs models.PlanAttrs
-		json.Unmarshal(p.Attributes, &pattrs)
-		dateStr := pattrs.SortDate[:10]
+		if err := json.Unmarshal(p.Attributes, &pattrs); err != nil {
+			return nil, 0, fmt.Errorf("decoding plan %s: %w", p.ID, err)
+		}
+		dateStr, dateErr := datePart(pattrs.SortDate)
+		if dateErr != nil {
+			return nil, 0, fmt.Errorf("plan %s has malformed or missing sort_date: %w", p.ID, dateErr)
+		}
 
 		items, err := s.ListPlanSongs(ctx, p.ID)
 		if err != nil {
@@ -223,6 +232,15 @@ func (s *Service) SongHistory(ctx context.Context, weeks int) ([]models.SongUsag
 
 // SetSong assigns a song to an existing plan item.
 func (s *Service) SetSong(ctx context.Context, planID, itemID, songID string, opts SongAssignmentOptions) (*SongAssignmentResult, error) {
+	if strings.TrimSpace(planID) == "" || strings.TrimSpace(itemID) == "" || strings.TrimSpace(songID) == "" {
+		return nil, fmt.Errorf("plan ID, item ID, and song ID are required")
+	}
+	if _, err := s.GetPlan(ctx, planID); err != nil {
+		return nil, fmt.Errorf("preflight plan %s: %w", planID, err)
+	}
+	if _, err := s.GetPlanItem(ctx, planID, itemID); err != nil {
+		return nil, fmt.Errorf("preflight item %s in plan %s: %w", itemID, planID, err)
+	}
 	song, err := s.GetSong(ctx, songID)
 	if err != nil {
 		return nil, err
@@ -232,33 +250,46 @@ func (s *Service) SetSong(ctx context.Context, planID, itemID, songID string, op
 		return nil, err
 	}
 
-	relationships := songItemRelationships(songID, arrangement)
-	if opts.SongOnly {
+	if err := s.patchSongItem(ctx, planID, itemID, *song, arrangement, opts.SongOnly); err != nil {
+		return nil, err
+	}
+	verified, err := s.GetPlanItem(ctx, planID, itemID)
+	if err != nil {
+		return nil, fmt.Errorf("song assignment request succeeded but verification read failed: %w", err)
+	}
+	wantArrangement := ""
+	if arrangement != nil {
+		wantArrangement = arrangement.ID
+	}
+	if verified.SongID != songID || verified.ArrangementID != wantArrangement {
+		return nil, fmt.Errorf("song assignment verification failed: item has song %q and arrangement %q; expected %q and %q", verified.SongID, verified.ArrangementID, songID, wantArrangement)
+	}
+	return songAssignmentResult(itemID, songID, song.Attrs.Title, arrangement, opts.SongOnly), nil
+}
+
+func (s *Service) patchSongItem(ctx context.Context, planID, itemID string, song models.Song, arrangement *models.Arrangement, songOnly bool) error {
+	relationships := songItemRelationships(song.ID, arrangement)
+	if songOnly {
 		relationships["arrangement"] = map[string]any{"data": nil}
 	}
-
-	body, err := json.Marshal(map[string]any{
-		"data": map[string]any{
-			"type":          "Item",
-			"id":            itemID,
-			"attributes":    map[string]any{"title": song.Attrs.Title},
-			"relationships": relationships,
-		},
-	})
+	body, err := json.Marshal(map[string]any{"data": map[string]any{
+		"type": "Item", "id": itemID, "attributes": map[string]any{"title": song.Attrs.Title}, "relationships": relationships,
+	}})
 	if err != nil {
-		return nil, err
+		return err
 	}
-
 	_, err = s.Client.Patch(ctx, s.servicePath()+"/plans/"+planID+"/items/"+itemID, string(body))
-	if err != nil {
-		return nil, err
-	}
-
-	return songAssignmentResult(itemID, songID, song.Attrs.Title, arrangement, opts.SongOnly), nil
+	return err
 }
 
 // AddSongItem inserts a new song item after the specified item.
 func (s *Service) AddSongItem(ctx context.Context, planID, afterItemID, songID, label string, opts SongAssignmentOptions) (*SongAssignmentResult, error) {
+	if strings.TrimSpace(planID) == "" || strings.TrimSpace(afterItemID) == "" || strings.TrimSpace(songID) == "" {
+		return nil, fmt.Errorf("plan ID, anchor item ID, and song ID are required")
+	}
+	if _, err := s.GetPlan(ctx, planID); err != nil {
+		return nil, fmt.Errorf("preflight plan %s: %w", planID, err)
+	}
 	// Get anchor item's sequence
 	anchorData, err := s.Client.Get(ctx, s.servicePath()+"/plans/"+planID+"/items/"+afterItemID, nil)
 	if err != nil {
@@ -313,6 +344,17 @@ func (s *Service) AddSongItem(ctx context.Context, planID, afterItemID, songID, 
 		return nil, err
 	}
 
+	verified, err := s.GetPlanItem(ctx, planID, resource.ID)
+	if err != nil {
+		return nil, fmt.Errorf("song item %s was created but verification read failed: %w", resource.ID, err)
+	}
+	wantArrangement := ""
+	if arrangement != nil {
+		wantArrangement = arrangement.ID
+	}
+	if verified.SongID != songID || verified.ArrangementID != wantArrangement {
+		return nil, fmt.Errorf("song item %s was created but verification failed: item has song %q and arrangement %q; expected %q and %q", resource.ID, verified.SongID, verified.ArrangementID, songID, wantArrangement)
+	}
 	return songAssignmentResult(resource.ID, songID, displayTitle, arrangement, opts.SongOnly), nil
 }
 
@@ -336,14 +378,21 @@ func (s *Service) resolveSongArrangement(ctx context.Context, songID string, opt
 	}
 
 	var active []models.Arrangement
+	var defaults []models.Arrangement
 	for _, arrangement := range arrangements {
 		if arrangement.Archived {
 			continue
 		}
 		active = append(active, arrangement)
-		if strings.EqualFold(arrangement.Attrs.Name, "Default Arrangement") {
-			return &arrangement, nil
+		if strings.EqualFold(strings.TrimSpace(arrangement.Attrs.Name), "Default Arrangement") {
+			defaults = append(defaults, arrangement)
 		}
+	}
+	if len(defaults) == 1 {
+		return &defaults[0], nil
+	}
+	if len(defaults) > 1 {
+		return nil, fmt.Errorf("song %s has multiple active arrangements named Default Arrangement (%s); pass --arrangement-id", songID, arrangementChoices(defaults))
 	}
 
 	if len(active) == 1 {

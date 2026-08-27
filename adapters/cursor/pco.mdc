@@ -6,7 +6,7 @@ alwaysApply: false
 
 # PCO CLI
 
-Use `pco` for Planning Center operations. Read current state before mutating it.
+Use `pco` for Planning Center operations. Prefer intent-level commands for routine work and low-level ID commands for diagnosis or recovery.
 
 Prefer read commands first:
 
@@ -30,12 +30,20 @@ Treat these as state-changing:
 pco blockouts add <start-date> <end-date> --reason "<reason>"
 pco blockouts delete <id>
 pco plans create <YYYY-MM-DD> --template <template-id>
+pco songs replace --date <YYYY-MM-DD> --current "<current title>" --with "<replacement title>"
+pco songs create --title "<title>" --authors "<authors>" --arrangement-name "<name>" (--ccli <number> | --no-ccli)
 pco songs set <plan-id> <item-id> <song-id>
 pco songs add <plan-id> <after-item-id> <song-id> --label "<label>"
 pco teams schedule <plan-id> <person-id> <team-id> "<position>"
 pco teams unschedule <plan-id> <assign-id>
 pco teams enable-signups <plan-id> --team-id <team-id>
 ```
+
+For routine replacement, run `pco songs replace ... --dry-run --json`, then run it without `--dry-run` after the intended titles/date are confirmed. The command fails closed on ambiguous plans, items, songs, or arrangements, checks stale state, and verifies after mutation. Use `--plan-id`, `--arrangement-id`, or intentional `--song-only` when its error requests one.
+
+`pco songs create` never adds a song to a plan. It requires title, authors, arrangement name, and explicit CCLI intent. Stop on duplicate matches unless the user explicitly authorizes `--allow-duplicate`. If arrangement creation partially fails, never delete the created song; use the returned `resume_command` with `--resume-song-id`.
+
+Keep theological judgment, musical selection, service-flow policy, and repetition policy outside the CLI.
 
 Before mutating:
 

@@ -103,7 +103,7 @@ func TestSearchSongsWithArrangementsIncludesArrangementSummaries(t *testing.T) {
 	client.HTTPClient = &songFakeHTTPClient{
 		t: t,
 		responses: map[string]string{
-			"/services/v2/songs?per_page=20&where%5Btitle%5D=King+Of+Kings": `{
+			"/services/v2/songs?per_page=100&where%5Btitle%5D=King+Of+Kings": `{
 				"data": [
 					{
 						"type": "Song",
@@ -279,7 +279,7 @@ func TestSetSongAttachesDefaultArrangement(t *testing.T) {
 				]
 			}`,
 			"/services/v2/service_types/643436/plans/plan-1/items/item-1": `{
-				"data": {"type": "Item", "id": "item-1"}
+				"data": {"type": "Item", "id": "item-1", "attributes": {}}
 			}`,
 		},
 	}
@@ -319,7 +319,7 @@ func TestSetSongOnlyLeavesArrangementBlank(t *testing.T) {
 				}
 			}`,
 			"/services/v2/service_types/643436/plans/plan-1/items/item-1": `{
-				"data": {"type": "Item", "id": "item-1"}
+				"data": {"type": "Item", "id": "item-1", "attributes": {}}
 			}`,
 		},
 	}
@@ -490,7 +490,40 @@ func (c *songFakeHTTPClient) Do(req *http.Request) (*http.Response, error) {
 		path:   req.URL.Path,
 		body:   requestBody,
 	})
+	if req.Method == http.MethodGet {
+		for i := len(c.requests) - 2; i >= 0; i-- {
+			previous := c.requests[i]
+			if previous.method == http.MethodPatch && previous.path == req.URL.Path {
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(previous.body)), Header: make(http.Header)}, nil
+			}
+		}
+		if strings.HasSuffix(req.URL.Path, "/items/new-1") {
+			for i := len(c.requests) - 2; i >= 0; i-- {
+				previous := c.requests[i]
+				if previous.method != http.MethodPost || !strings.HasSuffix(previous.path, "/items") {
+					continue
+				}
+				var envelope map[string]any
+				if err := json.Unmarshal([]byte(previous.body), &envelope); err != nil {
+					c.t.Fatal(err)
+				}
+				envelope["data"].(map[string]any)["id"] = "new-1"
+				data, _ := json.Marshal(envelope)
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(string(data))), Header: make(http.Header)}, nil
+			}
+		}
+	}
 	body, ok := c.responses[key]
+	if !ok {
+		if req.Method == http.MethodGet && strings.Contains(req.URL.Path, "/plans/") && !strings.Contains(req.URL.Path, "/items/") {
+			body = `{"data":{"type":"Plan","id":"plan-1","attributes":{"sort_date":"2026-09-13T09:00:00Z"}}}`
+			ok = true
+		}
+		if req.Method == http.MethodGet && strings.Contains(req.URL.Path, "/items/") {
+			body = `{"data":{"type":"Item","id":"item-1","attributes":{"title":"Existing"}}}`
+			ok = true
+		}
+	}
 	if !ok {
 		c.t.Fatalf("unexpected request path: %s", req.URL.String())
 	}

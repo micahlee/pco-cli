@@ -19,6 +19,9 @@ var blockoutsListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if jsonOutput {
+			return printer.JSON(blockouts)
+		}
 
 		if len(blockouts) == 0 {
 			fmt.Fprintln(printer.Writer(), "No blockout dates.")
@@ -53,6 +56,9 @@ var blockoutsAddCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		if jsonOutput {
+			return printer.JSON(map[string]any{"status": "success", "operation": "blockouts.add", "blockout": blockout})
+		}
 		msg := fmt.Sprintf("Created blockout %s: %s to %s", blockout.ID, args[0], args[1])
 		if reason != "" {
 			msg += fmt.Sprintf(" (%s)", reason)
@@ -69,6 +75,9 @@ var blockoutsDeleteCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := svc.DeleteBlockout(cmd.Context(), args[0]); err != nil {
 			return err
+		}
+		if jsonOutput {
+			return printer.JSON(map[string]any{"status": "success", "operation": "blockouts.delete", "blockout_id": args[0]})
 		}
 		fmt.Fprintf(printer.Writer(), "Deleted blockout %s\n", args[0])
 		return nil

@@ -22,6 +22,9 @@ var plansListCmd = &cobra.Command{
 			return err
 		}
 
+		if jsonOutput {
+			return printer.JSON(plans)
+		}
 		headers := []string{"ID", "Date", "Title"}
 		rows := make([][]string, len(plans))
 		for i, p := range plans {
@@ -124,6 +127,9 @@ var plansItemsCmd = &cobra.Command{
 			return err
 		}
 
+		if jsonOutput {
+			return printer.JSON(items)
+		}
 		headers := []string{"Item ID", "Seq", "Type", "Title", "Song ID"}
 		rows := make([][]string, len(items))
 		for i, item := range items {
@@ -149,6 +155,9 @@ var plansTemplatesCmd = &cobra.Command{
 			return err
 		}
 
+		if jsonOutput {
+			return printer.JSON(templates)
+		}
 		headers := []string{"ID", "Name"}
 		rows := make([][]string, len(templates))
 		for i, t := range templates {
@@ -170,6 +179,9 @@ var plansCreateCmd = &cobra.Command{
 			return err
 		}
 
+		if jsonOutput {
+			return printer.JSON(plans)
+		}
 		for _, p := range plans {
 			fmt.Fprintf(printer.Writer(), "Created plan %s: %s — %s\n",
 				p.ID, p.Attrs.Dates, p.Attrs.PlanningCenterURL)

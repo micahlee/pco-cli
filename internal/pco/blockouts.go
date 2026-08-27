@@ -39,6 +39,17 @@ func (s *Service) ListBlockoutsForPerson(ctx context.Context, personID string) (
 
 // AddBlockout creates a new blockout date for the configured user.
 func (s *Service) AddBlockout(ctx context.Context, start, end, reason string) (*models.Blockout, error) {
+	startDate, err := parseDate(start)
+	if err != nil {
+		return nil, fmt.Errorf("invalid blockout start: %w", err)
+	}
+	endDate, err := parseDate(end)
+	if err != nil {
+		return nil, fmt.Errorf("invalid blockout end: %w", err)
+	}
+	if endDate.Before(startDate) {
+		return nil, fmt.Errorf("blockout end %s is before start %s", end, start)
+	}
 	body := fmt.Sprintf(`{
 		"data": {
 			"type": "Blockout",

@@ -13,23 +13,31 @@ import (
 
 // ListPlans returns upcoming or past plans.
 func (s *Service) ListPlans(ctx context.Context, filter string, count int) ([]models.Plan, error) {
+	if count <= 0 {
+		return nil, fmt.Errorf("count must be greater than zero")
+	}
+	perPage := count
+	if perPage > 100 {
+		perPage = 100
+	}
 	params := url.Values{
 		"filter":   {filter},
-		"per_page": {strconv.Itoa(count)},
+		"per_page": {strconv.Itoa(perPage)},
 		"order":    {"sort_date"},
 	}
 	if filter == "past" {
 		params.Set("order", "-sort_date")
 	}
 
-	data, err := s.Client.Get(ctx, s.servicePath()+"/plans", params)
-	if err != nil {
-		return nil, err
-	}
-
-	resources, _, err := models.ParseList(data)
-	if err != nil {
-		return nil, err
+	resources := make([]models.Resource, 0, count)
+	for resource, err := range s.Client.PageIterator(ctx, s.servicePath()+"/plans", params) {
+		if err != nil {
+			return nil, err
+		}
+		resources = append(resources, resource)
+		if len(resources) == count {
+			break
+		}
 	}
 
 	plans := make([]models.Plan, len(resources))
@@ -84,16 +92,31 @@ func (s *Service) listPlanItems(ctx context.Context, planID string, extra url.Va
 		params[k] = v
 	}
 
-	data, err := s.Client.Get(ctx, s.servicePath()+"/plans/"+planID+"/items", params)
+	resources, err := s.Client.GetAll(ctx, s.servicePath()+"/plans/"+planID+"/items", params)
 	if err != nil {
 		return nil, err
 	}
+	return planItemsFromResources(resources)
+}
 
-	resources, _, err := models.ParseList(data)
+// GetPlanItem returns one plan item by explicit ID.
+func (s *Service) GetPlanItem(ctx context.Context, planID, itemID string) (*models.PlanItem, error) {
+	data, err := s.Client.Get(ctx, s.servicePath()+"/plans/"+planID+"/items/"+itemID, nil)
 	if err != nil {
 		return nil, err
 	}
+	resource, err := models.ParseOne(data)
+	if err != nil {
+		return nil, err
+	}
+	items, err := planItemsFromResources([]models.Resource{*resource})
+	if err != nil {
+		return nil, err
+	}
+	return &items[0], nil
+}
 
+func planItemsFromResources(resources []models.Resource) ([]models.PlanItem, error) {
 	items := make([]models.PlanItem, len(resources))
 	for i, r := range resources {
 		var attrs models.PlanItemAttrs
@@ -479,12 +502,7 @@ func resourceAttr(resource models.Resource, name string) json.RawMessage {
 
 // ListTemplates returns all plan templates.
 func (s *Service) ListTemplates(ctx context.Context) ([]models.PlanTemplate, error) {
-	data, err := s.Client.Get(ctx, s.servicePath()+"/plan_templates", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resources, _, err := models.ParseList(data)
+	resources, err := s.Client.GetAll(ctx, s.servicePath()+"/plan_templates", url.Values{"per_page": {"100"}})
 	if err != nil {
 		return nil, err
 	}
@@ -502,6 +520,9 @@ func (s *Service) ListTemplates(ctx context.Context) ([]models.PlanTemplate, err
 
 // CreatePlan creates a new plan from a template on the given date.
 func (s *Service) CreatePlan(ctx context.Context, date string, templateID string) ([]models.Plan, error) {
+	if _, err := parseDate(date); err != nil {
+		return nil, err
+	}
 	if templateID == "" {
 		templateID = s.Config.DefaultTemplateID
 	}

@@ -5,7 +5,7 @@ description: Use when the user asks to inspect or change Planning Center data th
 
 # PCO CLI
 
-Use the `pco` command for Planning Center operations. Prefer read commands first, then mutate only after the relevant IDs, dates, people, and positions are clear.
+Use the `pco` command for Planning Center operations. Prefer intent-level commands for routine work; use low-level ID-based commands for diagnosis, unusual recovery, and cases the intent workflow deliberately refuses.
 
 ## Setup
 
@@ -58,6 +58,8 @@ Treat these as state-changing operations:
 pco blockouts add <start-date> <end-date> --reason "<reason>"
 pco blockouts delete <id>
 pco plans create <YYYY-MM-DD> --template <template-id>
+pco songs replace --date <YYYY-MM-DD> --current "<current title>" --with "<replacement title>"
+pco songs create --title "<title>" --authors "<authors>" --arrangement-name "<name>" --ccli <number>
 pco songs set <plan-id> <item-id> <song-id>
 pco songs add <plan-id> <after-item-id> <song-id> --label "<label>"
 pco teams schedule <plan-id> <person-id> <team-id> "<position>"
@@ -65,13 +67,63 @@ pco teams unschedule <plan-id> <assign-id>
 pco teams enable-signups <plan-id> --team-id <team-id>
 ```
 
+### Routine song replacement
+
+Use `songs replace` instead of manually resolving IDs and calling `songs set`:
+
+```sh
+pco songs replace \
+  --date 2026-09-13 \
+  --current "Ancient of Days" \
+  --with "I Am Not My Own" \
+  --dry-run --json
+
+pco songs replace \
+  --date 2026-09-13 \
+  --current "Ancient of Days" \
+  --with "I Am Not My Own" \
+  --json
+```
+
+The command requires exactly one plan, current item, replacement library song, and safe arrangement choice. It rechecks the current item as a stale-state precondition and verifies after mutation. Use `--plan-id` when date resolution is ambiguous. Use `--arrangement-id` when multiple active arrangements have no unique `Default Arrangement`; use `--song-only` only when leaving the arrangement blank is intentional. Treat `preview`, `noop`, and `success` as complete structured outcomes. On an error, do not fall through to an unguarded mutation automatically—inspect the reported ambiguity or stale state first.
+
+### Explicit library-song creation
+
+`songs create` creates a library song and its initial arrangement, but never adds it to a plan. Require title, authors, arrangement name, and either `--ccli` or explicit `--no-ccli`:
+
+```sh
+pco songs create \
+  --title "I Am Not My Own" \
+  --authors "Keith Getty, Kristyn Getty, Matt Boswell, Matt Papa, Skye Peterson" \
+  --arrangement-name "Default Arrangement" \
+  --ccli 7217781 \
+  --key D --bpm 72 --meter 4/4 \
+  --json
+```
+
+The command searches both CCLI and normalized exact title. If it reports plausible duplicates, stop and inspect them. Never interpret the result as permission to reuse a match, and use `--allow-duplicate` only when the user explicitly intends a second record. Missing key, BPM, or meter is allowed but produces visible warnings.
+
+Song and arrangement creation are two API writes. If arrangement creation or verification fails after the song exists, do not delete the song. Report the exact `created_resources` and use the returned `resume_command`, which includes `--resume-song-id`, to safely complete or verify the arrangement.
+
+### Low-level recovery commands
+
+Use these explicit-ID escape hatches when diagnosing API state or recovering from a refused intent workflow:
+
+```sh
+pco songs set <plan-id> <item-id> <song-id> [--arrangement-id <id> | --song-only]
+pco songs add <plan-id> <after-item-id> <song-id> [--arrangement-id <id> | --song-only]
+```
+
+Do not prefer them for ordinary replacement because they bypass title/date intent resolution and the current-title stale-state guard.
+
 Before mutating:
 
 - Confirm the date and plan ID.
 - Inspect current state with the relevant read command.
 - For scheduling, check availability first with `pco music availability <YYYY-MM-DD>`.
 - For assignment changes, inspect current team members with `pco teams show <plan-id>`.
-- For song changes, inspect plan items with `pco plans items <plan-id>` and search/history as needed.
+- For routine song replacement, use `pco songs replace --dry-run --json`; it performs the relevant preflight itself.
+- For low-level song recovery, inspect plan items and arrangements explicitly before mutation.
 - If the user did not explicitly ask for the exact mutation, propose the command and wait.
 
 After mutating:
@@ -87,6 +139,10 @@ After mutating:
 - Use the configured Band team and Service Responsibilities team IDs when applicable.
 - Music Lead is in the Service Responsibilities team.
 - Use the broader Planning Center music/domain skill for policy questions such as rotation fairness, role preferences, and month planning.
+
+## Scope Boundary
+
+The CLI resolves records and carries out explicit Planning Center changes. Keep theological judgment, song selection, musical suitability, service-flow policy, and repetition policy outside the CLI. Obtain those decisions from the user or an appropriate domain workflow, then pass the chosen titles and metadata to `pco`.
 
 ## Failure Modes
 

@@ -20,14 +20,9 @@ var musicPositions = map[string]bool{
 
 // ListBandMembers returns all members of the Band team.
 func (s *Service) ListBandMembers(ctx context.Context) ([]models.BandMember, error) {
-	data, err := s.Client.Get(ctx,
+	resources, err := s.Client.GetAll(ctx,
 		s.servicePath()+"/teams/"+s.Config.BandTeamID+"/people",
 		url.Values{"per_page": {"100"}})
-	if err != nil {
-		return nil, err
-	}
-
-	resources, _, err := models.ParseList(data)
 	if err != nil {
 		return nil, err
 	}
@@ -73,8 +68,13 @@ func (s *Service) CheckAvailability(ctx context.Context, dateStr string) ([]mode
 
 		avail := models.Availability{Member: m, Available: true}
 		for _, b := range blockouts {
-			start, _ := time.Parse("2006-01-02", b.Attrs.StartsAt[:10])
-			end, _ := time.Parse("2006-01-02", b.Attrs.EndsAt[:10])
+			startText, startErr := datePart(b.Attrs.StartsAt)
+			endText, endErr := datePart(b.Attrs.EndsAt)
+			if startErr != nil || endErr != nil {
+				return nil, fmt.Errorf("blockout %s has malformed dates", b.ID)
+			}
+			start, _ := time.Parse("2006-01-02", startText)
+			end, _ := time.Parse("2006-01-02", endText)
 			if !checkDate.Before(start) && !checkDate.After(end) {
 				avail.Available = false
 				avail.Reason = b.Attrs.Reason
@@ -117,7 +117,10 @@ func (s *Service) MusicMonth(ctx context.Context, yearMonth string) (*models.Mus
 
 	for _, plan := range monthPlans {
 		pattrs := plan.Attrs
-		dateStr := pattrs.SortDate[:10]
+		dateStr, dateErr := datePart(pattrs.SortDate)
+		if dateErr != nil {
+			return nil, fmt.Errorf("plan %s has malformed or missing sort_date: %w", plan.ID, dateErr)
+		}
 		title := pattrs.Title
 		if title == "" {
 			title = "(no title)"
@@ -170,8 +173,13 @@ func (s *Service) MusicMonth(ctx context.Context, yearMonth string) (*models.Mus
 		checkDate, _ := time.Parse("2006-01-02", dateStr)
 		for _, m := range bandMembers {
 			for _, b := range blockoutsByPerson[m.PersonID] {
-				start, _ := time.Parse("2006-01-02", b.Attrs.StartsAt[:10])
-				end, _ := time.Parse("2006-01-02", b.Attrs.EndsAt[:10])
+				startText, startErr := datePart(b.Attrs.StartsAt)
+				endText, endErr := datePart(b.Attrs.EndsAt)
+				if startErr != nil || endErr != nil {
+					return nil, fmt.Errorf("blockout %s has malformed dates", b.ID)
+				}
+				start, _ := time.Parse("2006-01-02", startText)
+				end, _ := time.Parse("2006-01-02", endText)
 				if !checkDate.Before(start) && !checkDate.After(end) {
 					entry := m.Name
 					if b.Attrs.Reason != "" {
@@ -229,12 +237,14 @@ func (s *Service) ListPlansForMonth(ctx context.Context, yearMonth string) ([]mo
 	var monthPlans []models.Resource
 	for _, r := range allResources {
 		var attrs models.PlanAttrs
-		json.Unmarshal(r.Attributes, &attrs)
-		dateStr := attrs.SortDate
-		if len(dateStr) < 10 {
-			continue
+		if err := json.Unmarshal(r.Attributes, &attrs); err != nil {
+			return nil, fmt.Errorf("decoding plan %s: %w", r.ID, err)
 		}
-		d, _ := time.Parse("2006-01-02", dateStr[:10])
+		dateText, dateErr := datePart(attrs.SortDate)
+		if dateErr != nil {
+			return nil, fmt.Errorf("plan %s has malformed or missing sort_date: %w", r.ID, dateErr)
+		}
+		d, _ := time.Parse("2006-01-02", dateText)
 		if d.Year() == year && int(d.Month()) == month {
 			monthPlans = append(monthPlans, r)
 		}

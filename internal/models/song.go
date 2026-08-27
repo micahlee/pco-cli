@@ -4,15 +4,16 @@ import "encoding/json"
 
 // SongAttrs holds the attributes of a PCO song.
 type SongAttrs struct {
-	Title  string `json:"title"`
-	Author string `json:"author"`
-	Hidden bool   `json:"hidden"`
+	Title      string `json:"title"`
+	Author     string `json:"author"`
+	CCLINumber *int   `json:"ccli_number"`
+	Hidden     bool   `json:"hidden"`
 }
 
 // Song is a fully resolved song with ID.
 type Song struct {
-	ID    string
-	Attrs SongAttrs
+	ID    string    `json:"id"`
+	Attrs SongAttrs `json:"attrs"`
 }
 
 // SongSearchResult is a song search hit with optional arrangement summaries.
